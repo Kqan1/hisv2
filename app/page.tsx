@@ -1,7 +1,7 @@
 import { buttonVariants } from "@/components/ui/button";
 import { Heading } from "@/components/ui/heading";
 import { cn } from "@/lib/utils";
-import { BugIcon, HomeIcon, SettingsIcon } from "lucide-react";
+import { HomeIcon, NotebookIcon, SettingsIcon } from "lucide-react";
 import Link from "next/link";
 
 type MenuItemType = {
@@ -12,19 +12,18 @@ type MenuItemType = {
 
 const menuItems: MenuItemType[] = [
     {
-        label: "Home",
-        href: "/",
-        icon: <HomeIcon className="size-6" />,
-    },
-    {
-        label: "Settings",
-        href: "/settings",
+        label: "Manual Writing",
+        href: "/manual-writing",
         icon: <SettingsIcon className="size-6" />,
     },
     {
-        label: "Debug",
-        href: "/debug",
-        icon: <BugIcon className="size-6" />,
+        label: "Notes",
+        href: "/notes",
+        icon: <NotebookIcon className="size-6" />,
+    },{
+        label: "Lecture Records",
+        href: "/lecture-records",
+        icon: <NotebookIcon className="size-6" />,
     },
 ];
 
@@ -32,10 +31,10 @@ const MenuItem = ({ item }: { item: MenuItemType }) => {
     return (
         <Link
             href={item.href}
-            className={cn("flex items-center justify-center flex-col gap-2 border rounded aspect-square !size-full", buttonVariants({ variant: "outline" }))}
+            className={cn("flex items-center justify-center flex-col gap-2 border rounded aspect-square size-full!", buttonVariants({ variant: "outline" }))}
         >
             {item.icon}
-            <span className="text-xl">{item.label}</span>
+            <span className="text-xl text-balance text-center">{item.label}</span>
         </Link>
     );
 };

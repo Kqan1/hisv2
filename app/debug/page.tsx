@@ -55,7 +55,7 @@ export default function Debug() {
 
         // 1 saniyelik bir sayaç başlat
         const timer = setTimeout(() => {
-            console.log("⏳ Autosave: Timing sending...", holdTime, offTime);
+            console.log("Autosave: Timing sending...", holdTime, offTime);
             setTiming(holdTime, offTime);
         }, 1000);
 

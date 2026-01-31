@@ -11,6 +11,7 @@ interface MatrixProps {
     rows?: number;
     cols?: number;
     disabled?: boolean;
+    editable?: boolean;
 };
 
 export default function Matrix({
@@ -19,13 +20,19 @@ export default function Matrix({
     rows = 10,
     cols = 15,
     disabled = false,
+    editable = true
 }: MatrixProps) {
     const [grid, setGrid] = useState<number[][]>(() =>
         initialData || Array(rows).fill(0).map(() => Array(cols).fill(0))
     );
+    const gridRef = useRef<number[][]>(grid);
     const [tool, setTool] = useState<'pencil' | 'eraser'>('pencil');
     const [isDrawing, setIsDrawing] = useState(false);
     const lastPos = useRef<{ x: number; y: number } | null>(null);
+
+    useEffect(() => {
+        gridRef.current = grid;
+    }, [grid]);
 
     useEffect(() => {
         if (initialData) setGrid(initialData);
@@ -52,22 +59,22 @@ export default function Matrix({
     };
 
     const handleUpdate = (x: number, y: number) => {
-        if (disabled) return;
-            setGrid((prev) => {
-                let nextGrid;
-                if (lastPos.current) {
-                    nextGrid = drawLine(lastPos.current.x, lastPos.current.y, x, y, prev);
-                } else {
-                    nextGrid = prev.map((row) => [...row]);
-                    nextGrid[y][x] = tool === 'pencil' ? 1 : 0;
-                }
-                onChange?.(nextGrid);
-                return nextGrid;
-            });
+        if (disabled || !editable) return;
+        const prev = gridRef.current;
+        let nextGrid: number[][];
+        if (lastPos.current) {
+            nextGrid = drawLine(lastPos.current.x, lastPos.current.y, x, y, prev);
+        } else {
+            nextGrid = prev.map((row) => [...row]);
+            nextGrid[y][x] = tool === 'pencil' ? 1 : 0;
+        }
+        setGrid(nextGrid);
+        onChange?.(nextGrid);
         lastPos.current = { x, y };
     };
 
     const handleReset = () => {
+        if (disabled || !editable) return;
         const emptyGrid = Array(rows).fill(0).map(() => Array(cols).fill(0));
         setGrid(emptyGrid);
         onChange?.(emptyGrid);
@@ -79,7 +86,7 @@ export default function Matrix({
             onMouseUp={() => { setIsDrawing(false); lastPos.current = null; }}
             onMouseLeave={() => { setIsDrawing(false); lastPos.current = null; }}
         >
-            <div className="flex items-center gap-2 w-full justify-between">
+            {editable && <div className="flex items-center gap-2 w-full justify-between">
                 <ToggleGroup type="single" value={tool} onValueChange={(v) => v && setTool(v as any)} disabled={disabled}>
                     <ToggleGroupItem value="pencil" className="gap-2"><PencilLine size={16} />Draw</ToggleGroupItem>
                     <ToggleGroupItem value="eraser" className="gap-2"><Eraser size={16} /> Erase</ToggleGroupItem>
@@ -88,18 +95,18 @@ export default function Matrix({
                 <Button variant="destructive" size="sm" onClick={handleReset} disabled={disabled} className="gap-2">
                     <Trash2 size={16} /> Clear
                 </Button>
-            </div>
+            </div>}
 
             <div 
-                className="grid gap-px bg-zinc-200 border border-zinc-200 select-none touch-none size-full"
+                className="grid gap-px bg-zinc-200 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-800 select-none touch-none size-full"
                 style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
             >
                 {grid.map((row, y) => row.map((cell, x) => (
                     <div
                         key={`${x}-${y}`}
-                        className={`aspect-square size-full ${cell === 1 ? 'bg-black' : 'bg-white'} transition-colors duration-75`}
-                        onMouseDown={() => { setIsDrawing(true); handleUpdate(x, y); }}
-                        onMouseEnter={() => isDrawing && handleUpdate(x, y)}
+                        className={`aspect-square size-full ${cell === 1 ? 'bg-black dark:bg-zinc-200' : 'bg-white dark:bg-black'} transition-colors duration-75`}
+                        onMouseDown={() => { if (editable) { setIsDrawing(true); handleUpdate(x, y); } }}
+                        onMouseEnter={() => editable && isDrawing && handleUpdate(x, y)}
                     />
                 )))}
             </div>

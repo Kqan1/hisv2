@@ -1,0 +1,24 @@
+generator client {
+    provider = "prisma-client-js"
+}
+
+datasource db {
+    provider = "postgresql"
+}
+
+model PixelMatrix {
+    id        Int      @id @default(autoincrement())
+    matrix    Json
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+    notes     Notes[]
+}
+
+model Notes {
+    id            Int         @id @default(autoincrement())
+    title         String      @db.VarChar(255)
+    pixelMatrix   PixelMatrix @relation(fields: [pixelMatrixId], references: [id])
+    pixelMatrixId Int
+    createdAt     DateTime    @default(now())
+    updatedAt     DateTime    @updatedAt
+}
