@@ -25,6 +25,7 @@ type LectureRecordWithFrames = {
     id: number;
     title: string;
     audioPath: string | null;
+    audioData: any; // Buffer or base64 string
     createdAt: string;
     updatedAt: string;
     frames: FrameWithMatrix[];
@@ -93,60 +94,139 @@ export default function LectureRecordDetailClient({
 
     // Playback logic
     const isSending = useRef(false);
+    const audioRef = useRef<HTMLAudioElement | null>(null);
+    const [audioUrl, setAudioUrl] = useState<string | null>(null);
+
+    // Prepare audio URL
+    useEffect(() => {
+        if (record?.audioPath) {
+            setAudioUrl(record.audioPath);
+            return;
+        }
+
+        if (record?.audioData) {
+            try {
+                let bytes: Uint8Array;
+                if (typeof record.audioData === "string") {
+                    // Base64 string
+                    const binaryString = window.atob(record.audioData);
+                    const len = binaryString.length;
+                    bytes = new Uint8Array(len);
+                    for (let i = 0; i < len; i++) {
+                        bytes[i] = binaryString.charCodeAt(i);
+                    }
+                } else if (record.audioData.data) {
+                    // Buffer object { type: 'Buffer', data: [...] }
+                    bytes = new Uint8Array(record.audioData.data);
+                } else {
+                    bytes = new Uint8Array(record.audioData);
+                }
+
+                const blob = new Blob([bytes], { type: "audio/webm" });
+                const url = URL.createObjectURL(blob);
+                setAudioUrl(url);
+                return () => URL.revokeObjectURL(url);
+            } catch (e) {
+                console.error("Failed to process audio data", e);
+            }
+        }
+    }, [record]);
 
     useEffect(() => {
-        if (!isPlaying || !record?.frames || record.frames.length === 0) return;
+        if (!isPlaying || !record?.frames || record.frames.length === 0) {
+            if (!isPlaying && audioRef.current) {
+                audioRef.current.pause();
+            }
+            return;
+        }
+
+        // If we have audio, play it
+        if (audioUrl && audioRef.current) {
+            audioRef.current
+                .play()
+                .catch((e) => console.error("Audio play failed", e));
+        }
 
         let frameIndex = currentFrameIndex;
-        // Adjust start time to account for the current frame's time offset
-        // This ensures resuming works correctly
-        const currentFrameTime = record.frames[frameIndex]
-            ? record.frames[frameIndex].deltaTime
-            : 0;
-        const startTime = Date.now() - currentFrameTime;
+        // If audio exists, sync to audio time.
+        // If not, use system time.
+        const startTime = Date.now() - (record.frames[frameIndex] ? record.frames[frameIndex].deltaTime : 0);
+        
+        // If we are restarting from end or 0, we should ensure audio is explicitly set to correct time?
+        // If currentFrameIndex is 0, audio should be at 0.
+        if (frameIndex === 0 && audioRef.current) {
+            audioRef.current.currentTime = 0;
+        } else if (audioRef.current) {
+            // If resuming from middle, ensure audio matches frame time?
+            // frame.deltaTime is roughly the audio time.
+            const frameTime = record.frames[frameIndex]?.deltaTime || 0;
+            if (Math.abs(audioRef.current.currentTime * 1000 - frameTime) > 100) {
+                audioRef.current.currentTime = frameTime / 1000;
+            }
+        }
+
         let animationId: number;
 
         const playNextFrame = async () => {
-            if (!record.frames) return;
+             if (!record.frames) return;
 
-            const now = Date.now();
-            const elapsed = now - startTime;
-
-            // Find the frame that should be displayed at this time
-            while (
-                frameIndex < record.frames.length - 1 &&
-                record.frames[frameIndex + 1].deltaTime <= elapsed
-            ) {
-                frameIndex++;
+            let elapsed = 0;
+            if (audioUrl && audioRef.current) {
+                elapsed = audioRef.current.currentTime * 1000;
+                if (audioRef.current.ended) {
+                     setIsPlaying(false);
+                     setCurrentFrameIndex(record.frames.length - 1); // Go to last frame
+                     isSending.current = false;
+                     return;
+                }
+            } else {
+                elapsed = Date.now() - startTime;
             }
 
+            // Find the frame that should be displayed at this time
+            // Optimization: search from current frameIndex
+            let nextIndex = frameIndex;
+            while (
+                nextIndex < record.frames.length - 1 &&
+                record.frames[nextIndex + 1].deltaTime <= elapsed
+            ) {
+                nextIndex++;
+            }
+            
+            frameIndex = nextIndex;
+
             if (frameIndex < record.frames.length) {
-                // Update UI immediately
+                // Update UI immediately (only if changed to avoid renders?)
+                // Actually `setCurrentFrameIndex` causes re-render only if value changes.
                 setCurrentFrameIndex(frameIndex);
 
                 const frame = record.frames[frameIndex];
 
                 // Attempt to sync with ESP32 in a fire-and-forget manner
-                // Only send if we have a matrix and we are not already sending
                 if (frame.pixelMatrix?.matrix && !isSending.current) {
                     isSending.current = true;
                     setArray(frame.pixelMatrix.matrix as number[][], {
                         cycle: false,
                     })
-                        .catch(() => {
-                            // Ignore errors to not block playback
-                        })
+                        .catch(() => {})
                         .finally(() => {
                             isSending.current = false;
                         });
                 }
             }
 
-            if (frameIndex >= record.frames.length - 1) {
-                setIsPlaying(false);
-                // Keep the last frame index
-                setCurrentFrameIndex(record.frames.length - 1);
-                isSending.current = false;
+            if (frameIndex >= record.frames.length - 1 && (!audioUrl || (audioUrl && audioRef.current?.ended))) {
+                // If audio is present, we wait for 'ended' event or check logic above.
+                // If no audio, stop when last frame reached.
+                if (!audioUrl) {
+                    setIsPlaying(false);
+                    setCurrentFrameIndex(record.frames.length - 1);
+                    isSending.current = false;
+                } else if (audioRef.current?.ended) {
+                     // Handled above.
+                } else {
+                     animationId = requestAnimationFrame(playNextFrame);
+                }
             } else {
                 animationId = requestAnimationFrame(playNextFrame);
             }
@@ -156,10 +236,11 @@ export default function LectureRecordDetailClient({
 
         return () => {
             cancelAnimationFrame(animationId);
-            // We don't reset isSending here because a request might still be in flight
-            // and we want to let it finish naturally
+            if (audioRef.current) {
+                audioRef.current.pause();
+            }
         };
-    }, [isPlaying, record, setArray]);
+    }, [isPlaying, record, audioUrl, setArray]); // Removed currentFrameIndex from deps to avoid restart loop
 
     // Initial frame logic
     useEffect(() => {
@@ -256,6 +337,7 @@ export default function LectureRecordDetailClient({
                 ) : (
                     <h2 className="text-2xl font-bold">{record.title}</h2>
                 )}
+                <audio ref={audioRef} src={audioUrl || undefined} className="hidden" />
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <span>
                         created at: {formatRecordDate(record.createdAt)}

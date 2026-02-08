@@ -1,10 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import db from "@/lib/db";
+import fs from "fs/promises";
+import path from "path";
+import { v4 as uuidv4 } from "uuid";
 
 export async function GET() {
     const data = await db.lectureRecord.findMany({
         orderBy: { createdAt: "desc" },
-        include: {
+        select: {
+            id: true,
+            title: true,
+            audioPath: true, // This is now the primary source
+            createdAt: true,
+            updatedAt: true,
             _count: {
                 select: { frames: true },
             },
@@ -23,7 +31,9 @@ export async function GET() {
 export async function POST(request: NextRequest) {
     try {
         const body = await request.json();
-        const { title, frames } = body;
+        const { title, frames, audioData } = body;
+
+        console.log("Received API POST:", { title, framesCount: frames?.length, audioDataLength: audioData?.length });
 
         if (!title || typeof title !== "string" || title.trim().length === 0) {
             return NextResponse.json(
@@ -39,6 +49,31 @@ export async function POST(request: NextRequest) {
             );
         }
 
+        let audioPath = null;
+        if (audioData) {
+            try {
+                const buffer = Buffer.from(audioData, 'base64');
+                const uploadDir = path.join(process.cwd(), "public", "uploads", "audio");
+                
+                await fs.mkdir(uploadDir, { recursive: true });
+                
+                const fileName = `${Date.now()}-${uuidv4()}.webm`;
+                const filePath = path.join(uploadDir, fileName);
+                
+                await fs.writeFile(filePath, buffer);
+                
+                audioPath = `/uploads/audio/${fileName}`;
+            } catch (err) {
+                console.error("Error saving audio file:", err);
+                // Continue without audio or fail? prefer logging and continuing if possible, or failing?
+                // User expects audio.
+                return NextResponse.json(
+                     { error: "Failed to save audio file" },
+                     { status: 500 }
+                );
+            }
+        }
+
         // Transaction to ensure all data is created or nothing is
         // We set a higher timeout for large records
         const result = await db.$transaction(
@@ -46,6 +81,8 @@ export async function POST(request: NextRequest) {
                 const lectureRecord = await tx.lectureRecord.create({
                     data: {
                         title: title.trim(),
+                        audioPath: audioPath,
+                        // audioData is no longer saved
                     },
                 });
 

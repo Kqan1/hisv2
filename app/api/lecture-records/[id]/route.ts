@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import db from "@/lib/db";
+import fs from "fs/promises";
+import path from "path";
 
 export async function GET(
     request: NextRequest,
@@ -108,6 +110,31 @@ export async function DELETE(
                 { error: "Invalid record ID" },
                 { status: 400 },
             );
+        }
+
+        // Fetch record first to get audio path
+        const record = await db.lectureRecord.findUnique({
+            where: { id: recordId },
+            select: { audioPath: true },
+        });
+
+        if (!record) {
+             return NextResponse.json(
+                { error: "Record not found" },
+                { status: 404 },
+            );
+        }
+
+        // Delete audio file if it exists
+        if (record.audioPath) {
+            try {
+                const fullPath = path.join(process.cwd(), "public", record.audioPath);
+                await fs.unlink(fullPath);
+                console.log(`Deleted audio file: ${fullPath}`);
+            } catch (err) {
+                console.error(`Failed to delete audio file for record ${recordId}:`, err);
+                // Continue with record deletion even if file deletion fails
+            }
         }
 
         await db.lectureRecord.delete({

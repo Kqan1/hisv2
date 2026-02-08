@@ -2,7 +2,12 @@
 import { useESP32Connection } from '@/hooks/useESP32Connection';
 import { cn } from '@/lib/utils';
 
-export function ConnectionIndicator({className, ...props}: {className?: string}) {
+const DISABLE_CONNECTION_INDICATOR = true; // 👈 geçici kapatma
+
+export function ConnectionIndicator({ className, ...props }: { className?: string }) {
+
+    if (DISABLE_CONNECTION_INDICATOR) return null; // 👈 tamamen kapalı
+
     const { state, isConnected } = useESP32Connection();
 
     const statusConfig = {
@@ -13,10 +18,8 @@ export function ConnectionIndicator({className, ...props}: {className?: string})
 
     const config = statusConfig[state];
 
-    // console.log("isConnected: ", isConnected)
-
     return (
-        <div className={cn(`flex items-center gap-2 px-4 py-2 rounded-lg !bg-transparent ${config.color}`, className, {...props})}>
+        <div className={cn(`flex items-center gap-2 px-4 py-2 rounded-lg !bg-transparent ${config.color}`, className, props)}>
             <div className={`size-3 rounded-full ${config.dot}`} />
             <span className="text-md font-medium">{config.text}</span>
         </div>
