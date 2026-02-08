@@ -1,7 +1,6 @@
 "use client"
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
 import { TrashIcon, XIcon, PlusIcon } from 'lucide-react'
 import type { Prisma } from '@prisma/client'
 import Matrix from '@/components/ui/matrix'
@@ -10,7 +9,7 @@ import { buttonVariants } from '@/components/ui/button'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 
-type NoteWithMatrix = Prisma.NotesGetPayload<{ include: { pixelMatrix: true } }>
+type NoteWithMatrix = Prisma.NoteGetPayload<{ include: { pixelMatrix: true } }>
 
 function formatNoteDate(createdAt: Date | string): string {
     const date = typeof createdAt === 'string' ? new Date(createdAt) : createdAt
@@ -24,7 +23,6 @@ interface NotesListProps {
 
 export function NotesList({ notes, deleteMode }: NotesListProps) {
     const [deletingId, setDeletingId] = useState<number | null>(null)
-    const router = useRouter()
 
     const handleDelete = async (noteId: number) => {
         if (deletingId) return // Zaten bir silme işlemi devam ediyor
@@ -121,10 +119,10 @@ function NoteCard({ noteData, deleteMode, isDeleting, onDelete }: NoteCardProps)
                 )}
                 <h3 className="text-lg font-bold leading-none">{noteData.title}</h3>
                 <small className="text-sm text-muted-foreground">
-                    created at: {formatNoteDate(noteData.pixelMatrix.createdAt)}
+                    created at: {formatNoteDate(noteData.pixelMatrix?.createdAt ?? noteData.createdAt)}
                 </small>
                 <div className="flex-1 min-h-0 mt-2">
-                    <Matrix editable={false} initialData={noteData.pixelMatrix.matrix as number[][]} />
+                    <Matrix editable={false} initialData={(noteData.pixelMatrix?.matrix as number[][]) ?? []} />
                 </div>
             </div>
         )
@@ -140,10 +138,10 @@ function NoteCard({ noteData, deleteMode, isDeleting, onDelete }: NoteCardProps)
         >
             <h3 className="text-lg font-bold leading-none">{noteData.title}</h3>
             <small className="text-sm text-muted-foreground">
-                created at: {formatNoteDate(noteData.pixelMatrix.createdAt)}
+                created at: {formatNoteDate(noteData.pixelMatrix?.createdAt ?? noteData.createdAt)}
             </small>
             <div className="flex-1 min-h-0 mt-2">
-                <Matrix editable={false} initialData={noteData.pixelMatrix.matrix as number[][]} />
+                <Matrix editable={false} initialData={(noteData.pixelMatrix?.matrix as number[][]) ?? []} />
             </div>
         </Link>
     )

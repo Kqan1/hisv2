@@ -6,19 +6,58 @@ datasource db {
     provider = "postgresql"
 }
 
+model LectureRecord {
+    id        Int      @id @default(autoincrement())
+    title     String   @db.VarChar(255)
+    audioPath String?  @map("audio_path") @db.VarChar(500)
+    createdAt DateTime @default(now()) @map("created_at")
+    updatedAt DateTime @updatedAt @map("updated_at")
+
+    frames Frame[]
+
+    @@map("lecture_records")
+}
+
+model Frame {
+    id              Int      @id @default(autoincrement())
+    lectureRecordId Int      @map("lecture_record_id")
+    deltaTime       Int      @map("delta_time")
+    createdAt       DateTime @default(now()) @map("created_at")
+
+    lectureRecord LectureRecord @relation(fields: [lectureRecordId], references: [id], onDelete: Cascade)
+
+    // PixelMatrix artık bu Frame'e bağlı bir alt öğe
+    pixelMatrix PixelMatrix?
+
+    @@index([lectureRecordId, deltaTime])
+    @@map("frames")
+}
+
+model Note {
+    id        Int      @id @default(autoincrement())
+    title     String   @db.VarChar(255)
+    createdAt DateTime @default(now()) @map("created_at")
+    updatedAt DateTime @updatedAt @map("updated_at")
+
+    // PixelMatrix artık bu Note'a bağlı bir alt öğe
+    pixelMatrix PixelMatrix?
+
+    @@map("notes")
+}
+
 model PixelMatrix {
     id        Int      @id @default(autoincrement())
     matrix    Json
-    createdAt DateTime @default(now())
-    updatedAt DateTime @updatedAt
-    notes     Notes[]
-}
+    createdAt DateTime @default(now()) @map("created_at")
+    updatedAt DateTime @updatedAt @map("updated_at")
 
-model Notes {
-    id            Int         @id @default(autoincrement())
-    title         String      @db.VarChar(255)
-    pixelMatrix   PixelMatrix @relation(fields: [pixelMatrixId], references: [id])
-    pixelMatrixId Int
-    createdAt     DateTime    @default(now())
-    updatedAt     DateTime    @updatedAt
+    // EĞER FRAME SİLİNİRSE, BU MATRİX DE SİLİNİR
+    frameId Int?   @unique @map("frame_id")
+    frame   Frame? @relation(fields: [frameId], references: [id], onDelete: Cascade)
+
+    // EĞER NOTE SİLİNİRSE, BU MATRİX DE SİLİNİR
+    noteId Int?  @unique @map("note_id")
+    note   Note? @relation(fields: [noteId], references: [id], onDelete: Cascade)
+
+    @@map("pixel_matrices")
 }

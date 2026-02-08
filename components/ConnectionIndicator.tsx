@@ -1,5 +1,4 @@
 'use client';
-
 import { useESP32Connection } from '@/hooks/useESP32Connection';
 import { cn } from '@/lib/utils';
 
@@ -14,7 +13,7 @@ export function ConnectionIndicator({className, ...props}: {className?: string})
 
     const config = statusConfig[state];
 
-    console.log("isConnected: ", isConnected)
+    // console.log("isConnected: ", isConnected)
 
     return (
         <div className={cn(`flex items-center gap-2 px-4 py-2 rounded-lg !bg-transparent ${config.color}`, className, {...props})}>

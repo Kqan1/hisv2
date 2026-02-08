@@ -1,7 +1,7 @@
 import { buttonVariants } from "@/components/ui/button";
 import { Heading } from "@/components/ui/heading";
 import { cn } from "@/lib/utils";
-import { HomeIcon, NotebookIcon, SettingsIcon } from "lucide-react";
+import { BrainCircuit, FileText, HomeIcon, NotebookIcon, SettingsIcon } from "lucide-react";
 import Link from "next/link";
 
 type MenuItemType = {
@@ -24,7 +24,15 @@ const menuItems: MenuItemType[] = [
         label: "Lecture Records",
         href: "/lecture-records",
         icon: <NotebookIcon className="size-6" />,
-    },
+    },{
+        label: "AI Teacher",
+        href: "/ai-teacher",
+        icon: <BrainCircuit className="size-6" />,
+    },{
+        label: "PDF to Matrix",
+        href: "/pdf",
+        icon: <FileText className="size-6" />,
+    }
 ];
 
 const MenuItem = ({ item }: { item: MenuItemType }) => {

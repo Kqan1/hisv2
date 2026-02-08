@@ -10,7 +10,6 @@ import { cn } from '@/lib/utils'
 type NoteWithMatrix = {
     id: number
     title: string
-    pixelMatrixId: number
     createdAt: string
     updatedAt: string
     pixelMatrix: {
@@ -18,7 +17,7 @@ type NoteWithMatrix = {
         matrix: number[][]
         createdAt: string
         updatedAt: string
-    }
+    } | null
 }
 
 function formatNoteDate(createdAt: Date | string): string {

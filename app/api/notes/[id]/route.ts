@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import db from '@/lib/db';
 import type { Prisma } from '@prisma/client';
 
-type NoteWithMatrix = Prisma.NotesGetPayload<{ include: { pixelMatrix: true } }>;
+type NoteWithMatrix = Prisma.NoteGetPayload<{ include: { pixelMatrix: true } }>;
 
 function parseId(params: Promise<{ id: string }>): Promise<number | null> {
     return params.then(({ id }) => {
@@ -20,7 +20,7 @@ export async function GET(
         if (noteId == null) {
             return NextResponse.json({ error: 'Invalid note ID' }, { status: 400 });
         }
-        const note: NoteWithMatrix | null = await db.notes.findUnique({
+        const note: NoteWithMatrix | null = await db.note.findUnique({
             where: { id: noteId },
             include: { pixelMatrix: true },
         });
@@ -54,7 +54,7 @@ export async function PATCH(
         if (noteId == null) {
             return NextResponse.json({ error: 'Invalid note ID' }, { status: 400 });
         }
-        const existing = await db.notes.findUnique({
+        const existing = await db.note.findUnique({
             where: { id: noteId },
             include: { pixelMatrix: true },
         });
@@ -65,7 +65,7 @@ export async function PATCH(
         const title = typeof body.title === 'string' ? body.title.trim().slice(0, 255) : undefined;
         const matrix = body.matrix;
         if (title !== undefined) {
-            await db.notes.update({
+            await db.note.update({
                 where: { id: noteId },
                 data: { title: title || existing.title },
             });
@@ -74,12 +74,14 @@ export async function PATCH(
             if (!isValidMatrix(matrix)) {
                 return NextResponse.json({ error: 'Invalid matrix' }, { status: 400 });
             }
-            await db.pixelMatrix.update({
-                where: { id: existing.pixelMatrixId },
-                data: { matrix },
-            });
+            if (existing.pixelMatrix?.id) {
+                await db.pixelMatrix.update({
+                    where: { id: existing.pixelMatrix.id },
+                    data: { matrix },
+                });
+            }
         }
-        const updated: NoteWithMatrix = await db.notes.findUnique({
+        const updated: NoteWithMatrix = await db.note.findUnique({
             where: { id: noteId },
             include: { pixelMatrix: true },
         }) as NoteWithMatrix;
@@ -105,10 +107,9 @@ export async function DELETE(
             );
         }
 
-        // Önce notu bul ve pixelMatrixId'yi al
-        const note = await db.notes.findUnique({
+        // Check if note exists
+        const note = await db.note.findUnique({
             where: { id: noteId },
-            select: { pixelMatrixId: true },
         });
 
         if (!note) {
@@ -118,24 +119,16 @@ export async function DELETE(
             );
         }
 
-        // Notu sil
-        await db.notes.delete({
+        // Just delete the note. PixelMatrix will be deleted automatically due to CASCADE if configured,
+        // OR we need to delete it manually if it's strictly 1:1 and we want to be clean.
+        // The schema says:
+        // noteId Int? @unique @map("note_id")
+        // note Note? @relation(fields: [noteId], references: [id], onDelete: Cascade)
+        // So deleting Note deletes PixelMatrix.
+        
+        await db.note.delete({
             where: { id: noteId },
         });
-
-        // Eğer bu pixelMatrix başka bir not tarafından kullanılmıyorsa, onu da sil
-        const otherNotesUsingMatrix = await db.notes.findFirst({
-            where: {
-                pixelMatrixId: note.pixelMatrixId,
-                id: { not: noteId },
-            },
-        });
-
-        if (!otherNotesUsingMatrix) {
-            await db.pixelMatrix.delete({
-                where: { id: note.pixelMatrixId },
-            });
-        }
 
         return NextResponse.json({ success: true });
     } catch (error) {

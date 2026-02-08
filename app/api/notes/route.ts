@@ -30,8 +30,8 @@ export async function GET(request: NextRequest) {
         const sort = searchParams.get('sort') || DEFAULT_SORT;
         const orderBy = SORT_TO_ORDER[sort] ?? SORT_TO_ORDER[DEFAULT_SORT];
 
-        const notes: Prisma.NotesGetPayload<{ include: { pixelMatrix: true } }>[] = await withTimeout(
-            db.notes.findMany({
+        const notes: Prisma.NoteGetPayload<{ include: { pixelMatrix: true } }>[] = await withTimeout(
+            db.note.findMany({
                 include: { pixelMatrix: true },
                 orderBy,
             }),
@@ -89,17 +89,17 @@ export async function POST(request: NextRequest) {
             Array.isArray(matrix) && matrix.length === rows && matrix.every((row) => Array.isArray(row) && row.length === cols)
                 ? matrix
                 : Array(rows)
-                      .fill(0)
-                      .map(() => Array(cols).fill(0));
+                    .fill(0)
+                    .map(() => Array(cols).fill(0));
 
-        const pixelMatrix = await db.pixelMatrix.create({
-            data: { matrix: initialMatrix },
-        });
-
-        const note = await db.notes.create({
+        const note = await db.note.create({
             data: {
                 title: title.trim().slice(0, 255),
-                pixelMatrixId: pixelMatrix.id,
+                pixelMatrix: {
+                    create: {
+                        matrix: initialMatrix,
+                    },
+                },
             },
             include: { pixelMatrix: true },
         });
