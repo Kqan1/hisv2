@@ -7,7 +7,7 @@ import Link from "next/link";
 type MenuItemType = {
     label: string;
     href: string;
-    icon: React.ReactNode;
+    icon: React.ReactNode; 
 };
 
 const menuItems: MenuItemType[] = [
