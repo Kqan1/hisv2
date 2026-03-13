@@ -23,7 +23,8 @@ export function NewLectureRecordForm() {
     const [title, setTitle] = useState("");
     const [currentMatrix, setCurrentMatrix] =
         useState<number[][]>(EMPTY_MATRIX);
-    const [frames, setFrames] = useState<FrameData[]>([]);
+    const framesRef = useRef<FrameData[]>([]);
+    const [frameCount, setFrameCount] = useState(0);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);
     // Audio recording state
@@ -92,26 +93,34 @@ export function NewLectureRecordForm() {
     };
 
     // Recording state
-    const [isRecording, setIsRecording] = useState(false);
-    const [recordingStartTime, setRecordingStartTime] = useState<number>(0);
+    const isRecordingRef = useRef(false);
+    const [isRecording, setIsRecordingState] = useState(false);
+    const recordingStartTimeRef = useRef<number>(0);
+
+    const setIsRecording = (val: boolean) => {
+        isRecordingRef.current = val;
+        setIsRecordingState(val);
+    };
 
     const handleStartRecording = () => {
         setIsRecording(true);
-        if (frames.length > 0 && confirm("Clear existing frames to start new recording?")) {
-            setFrames([]);
+        if (framesRef.current.length > 0 && confirm("Clear existing frames to start new recording?")) {
+            framesRef.current = [];
+            setFrameCount(0);
             audioChunksRef.current = [];
             setAudioBase64(null);
-        } else if (frames.length === 0) {
+        } else if (framesRef.current.length === 0) {
              audioChunksRef.current = [];
              setAudioBase64(null);
         }
         
         if (mediaRecorder && mediaRecorder.state === "inactive") {
-            mediaRecorder.start();
+            try { mediaRecorder.start(); } catch (e) { console.error(e); }
         }
 
-        setRecordingStartTime(Date.now());
-        setFrames([{ matrix: currentMatrix, deltaTime: 0 }]);
+        recordingStartTimeRef.current = Date.now();
+        framesRef.current = [{ matrix: currentMatrix, deltaTime: 0 }];
+        setFrameCount(1);
     };
 
     const handleStopRecording = async () => {
@@ -120,32 +129,42 @@ export function NewLectureRecordForm() {
     };
 
     const handleMatrixChange = (newMatrix: number[][]) => {
+        // Prevent processing identical frames to optimize data usage
+        const lastMatrix = framesRef.current.length > 0
+            ? framesRef.current[framesRef.current.length - 1].matrix
+            : currentMatrix;
+
+        if (JSON.stringify(lastMatrix) === JSON.stringify(newMatrix)) {
+            return;
+        }
+
         setCurrentMatrix(newMatrix);
         
         // ... (rest of logic same) ...
-        let activeRecording = isRecording;
-        let activeStartTime = recordingStartTime;
+        let activeRecording = isRecordingRef.current;
+        let activeStartTime = recordingStartTimeRef.current;
 
-        if (!isRecording && frames.length === 0) {
+        if (!activeRecording && framesRef.current.length === 0) {
             setIsRecording(true);
             activeRecording = true;
             const now = Date.now();
-            setRecordingStartTime(now);
+            recordingStartTimeRef.current = now;
             activeStartTime = now;
-            setFrames([{ matrix: currentMatrix, deltaTime: 0 }]);
+            framesRef.current = [{ matrix: currentMatrix, deltaTime: 0 }];
             
             // Start audio recording
             if (mediaRecorder && mediaRecorder.state === "inactive") {
                 audioChunksRef.current = []; // Clear previous chunks
                 setAudioBase64(null);
-                mediaRecorder.start();
+                try { mediaRecorder.start(); } catch (e) { console.error(e); }
             }
         }
 
         if (activeRecording) {
             const now = Date.now();
             const deltaTime = now - activeStartTime;
-            setFrames((prev) => [...prev, { matrix: newMatrix, deltaTime }]);
+            framesRef.current.push({ matrix: newMatrix, deltaTime });
+            setFrameCount(framesRef.current.length);
             setArray(newMatrix, { cycle: false }).catch(() => {});
         } else {
             setArray(newMatrix, { cycle: false }).catch(() => {});
@@ -162,7 +181,7 @@ export function NewLectureRecordForm() {
         
         // Ensure recording is stopped and data is captured
         let finalAudioData = audioBase64;
-        if (isRecording) {
+        if (isRecordingRef.current) {
              setIsRecording(false);
              finalAudioData = await stopRecording();
         } else if (!finalAudioData && audioChunksRef.current.length > 0) {
@@ -170,12 +189,12 @@ export function NewLectureRecordForm() {
              finalAudioData = await getAudioBase64();
         }
 
-        if (frames.length === 0) {
-            const initialFrame = { matrix: currentMatrix, deltaTime: 0 };
-            setFrames([initialFrame]);
+        if (framesRef.current.length === 0) {
+            framesRef.current = [{ matrix: currentMatrix, deltaTime: 0 }];
+            setFrameCount(1);
         }
 
-        const framesToSave = frames.length > 0 ? frames : [{ matrix: currentMatrix, deltaTime: 0 }];
+        const framesToSave = framesRef.current.length > 0 ? framesRef.current : [{ matrix: currentMatrix, deltaTime: 0 }];
 
         setIsSubmitting(true);
         try {
@@ -208,7 +227,8 @@ export function NewLectureRecordForm() {
 
     const clearFrames = () => {
         if (confirm("Are you sure you want to clear all recorded frames?")) {
-            setFrames([]);
+            framesRef.current = [];
+            setFrameCount(0);
             audioChunksRef.current = [];
             setAudioBase64(null);
         }
@@ -238,7 +258,7 @@ export function NewLectureRecordForm() {
             <div className="space-y-4">
                 <div className="flex items-center justify-between">
                     <label className="text-sm font-medium">
-                        Frames ({frames.length})
+                        Frames ({frameCount})
                         {isRecording && (
                             <span className="ml-2 text-red-500 animate-pulse">
                                 ● Recording...
@@ -251,7 +271,7 @@ export function NewLectureRecordForm() {
                             variant="destructive"
                             size="sm"
                             onClick={clearFrames}
-                            disabled={frames.length === 0 || isRecording}
+                            disabled={frameCount === 0 || isRecording}
                         >
                             <XIcon className="size-4 mr-2" />
                             Clear
