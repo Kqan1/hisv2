@@ -31,6 +31,9 @@ export const siteConfig = {
 export const ESP32_CONFIG = {
     ip: process.env.NEXT_PUBLIC_ESP32_IP || '192.168.10.204',
     useProxy: process.env.NEXT_PUBLIC_USE_PROXY === 'true', // Yeni
+    password: process.env.NEXT_PUBLIC_ESP32_PASSWORD || '7580',
+    apiUser: process.env.NEXT_PUBLIC_ESP32_USER || 'api_user',
+    apiPass: process.env.NEXT_PUBLIC_ESP32_API_PASS || 'api_pass',
     timeout: 3000,
     healthCheckInterval: {
         connected: 5000,

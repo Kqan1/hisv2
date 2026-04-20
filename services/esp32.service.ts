@@ -2,11 +2,8 @@ import { ESP32_CONFIG } from '@/lib/config';
 import type {
   ConnectionState,
   ESP32Status,
-  GPIOStatus,
-  KeyboardStatus,
   SetArrayOptions,
-  Matrix,
-  Pattern
+  Matrix
 } from '@/types/esp32.types';
 
 class ESP32Service {
@@ -15,14 +12,13 @@ class ESP32Service {
   private state: ConnectionState = 'checking';
   private listeners = new Set<() => void>();
   private healthCheckInterval: NodeJS.Timeout | null = null;
+  private password = ESP32_CONFIG.password;
 
   constructor(ip: string, useProxy = false) {
-    this.baseUrl = `http://${ip}`;
+    this.useProxy = useProxy;
     this.baseUrl = useProxy 
       ? '/api/esp32'  // Next.js proxy
       : `http://${ip}`; // Direkt ESP32
-    this.useProxy = useProxy;
-
   }
 
   // ========================================================================
@@ -52,9 +48,11 @@ class ESP32Service {
   private async healthCheck() {
     try {
       const response = await fetch(`${this.baseUrl}/api/status`, {
-        // ESP32 bazı kurulumlarda HEAD desteklemediği için 404 dönebiliyor.
-        // GET ile sadece response.ok kontrolü yapıyoruz (body okumuyoruz).
-        method: 'GET',
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ password: this.password }),
         signal: AbortSignal.timeout(2000),
         cache: 'no-store'
       });
@@ -93,6 +91,15 @@ class ESP32Service {
 
   private async request<T>(endpoint: string, options?: RequestInit): Promise<T> {
     try {
+      const headersInit: HeadersInit = options?.headers || {};
+      if (options?.body && typeof options.body === 'string') {
+        const h = new Headers(headersInit);
+        if (!h.has('Content-Type')) {
+          h.set('Content-Type', 'application/json');
+        }
+        options = { ...options, headers: h };
+      }
+      
       const response = await fetch(`${this.baseUrl}${endpoint}`, {
         ...options,
         signal: AbortSignal.timeout(ESP32_CONFIG.timeout),
@@ -119,77 +126,81 @@ class ESP32Service {
   // API METHODS
   // ========================================================================
 
-  async setPixel(row: number, col: number, raise: boolean): Promise<string> {
-    const params = new URLSearchParams({
-      row: row.toString(),
-      col: col.toString(),
-      raise: raise ? '1' : '0'
-    });
-    return this.request('/api/pixel', {
+  async setPixel(row: number, col: number, raise: boolean): Promise<any> {
+    const value = raise ? 1 : 0;
+    return this.request('/api/public', {
       method: 'POST',
-      body: params
+      body: JSON.stringify({
+        user: ESP32_CONFIG.apiUser,
+        pass: ESP32_CONFIG.apiPass,
+        action: 'pixel',
+        row,
+        col,
+        value
+      })
     });
   }
 
-  async setArray(
-    array: Matrix,
-    options: SetArrayOptions = {}
-  ): Promise<string> {
-    const { cycle = false, holdTime = 100, offTime = 20 } = options;
-    return this.request('/api/setarray', {
+  async setArray(array: Matrix, options: SetArrayOptions = {}): Promise<any> {
+    // Note: options.holdTime and offTime can't be set directly in /api/display anymore.
+    // They are global via /api/timing
+    return this.request('/api/display', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ array, cycle, holdTime, offTime })
+      body: JSON.stringify({
+        password: this.password,
+        pixels: array
+      })
     });
   }
 
-  async setTiming(holdTime: number, offTime: number): Promise<string> {
-    const params = new URLSearchParams({
-      holdTime: holdTime.toString(),
-      offTime: offTime.toString()
-    });
+  async setTiming(holdTime: number, offTime: number): Promise<any> {
     return this.request('/api/timing', {
       method: 'POST',
-      body: params
+      body: JSON.stringify({
+        password: this.password,
+        pixelOnTime: holdTime,
+        pixelOffTime: offTime
+      })
     });
   }
 
-  async enableLoop(enabled: boolean): Promise<string> {
-    const params = new URLSearchParams({
-      enabled: enabled ? '1' : '0'
-    });
+  async enableLoop(enabled: boolean): Promise<any> {
     return this.request('/api/loop', {
       method: 'POST',
-      body: params
+      body: JSON.stringify({
+        password: this.password,
+        enabled
+      })
     });
   }
 
-  async runPattern(pattern: Pattern): Promise<string> {
-    const params = new URLSearchParams({ pattern });
-    return this.request('/api/pattern', {
+  async clear(): Promise<any> {
+    return this.request('/api/public', {
       method: 'POST',
-      body: params
+      body: JSON.stringify({
+        user: ESP32_CONFIG.apiUser,
+        pass: ESP32_CONFIG.apiPass,
+        action: 'clear'
+      })
     });
   }
 
-  async clear(): Promise<string> {
-    return this.request('/api/clear', { method: 'POST' });
-  }
-
-  async stop(): Promise<string> {
-    return this.request('/api/stop', { method: 'POST' });
+  async stop(): Promise<any> {
+    return this.request('/api/stop', {
+      method: 'POST',
+      body: JSON.stringify({
+        password: this.password
+      })
+    });
   }
 
   async getStatus(): Promise<ESP32Status> {
-    return this.request('/api/status');
-  }
-
-  async getGPIO(): Promise<GPIOStatus> {
-    return this.request('/api/gpio');
-  }
-
-  async getKeyboard(): Promise<KeyboardStatus> {
-    return this.request('/api/keyboard');
+    return this.request('/api/status', {
+      method: 'POST',
+      body: JSON.stringify({
+        password: this.password
+      })
+    });
   }
 }
 

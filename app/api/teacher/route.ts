@@ -11,23 +11,16 @@ export async function POST(req: Request) {
     }
 
     try {
+        console.log("[DEBUG] --- New API Request received ---");
         const body = await req.json();
         const { messages } = body;
+        console.log("[DEBUG] Parsed request body (messages count):", messages?.length);
+        console.log("[DEBUG] Messages array:", JSON.stringify(messages, null, 2));
 
         const ai = new GoogleGenAI({ apiKey });
 
         const config = {
             temperature: 0.3,
-            // thinkingConfig: {
-            //   thinkingBudget: -1, 
-            // }, 
-            // NOTE: 'gemini-flash-latest' (1.5 Flash) does not support thinkingConfig. 
-            // If the user intends to use a model that supports thinking, they should use 'gemini-2.0-flash-thinking-exp'.
-            // However, the user explicitly asked to "fit this" code which uses 'gemini-flash-latest' AND 'thinkingBudget'.
-            // I will include it, but the SDK/API might ignore it or error if the model doesn't support it.
-            // Safe bet: Include it as requested.
-            // UPDATE: undefined check for safety.
-            
             safetySettings: [
                 {
                     category: HarmCategory.HARM_CATEGORY_HARASSMENT,
@@ -118,11 +111,13 @@ Never exceed the 15x10 boundary. If a shape is too complex, simplify it to its e
         };
 
         const lastMessage = messages[messages.length - 1];
+        console.log("[DEBUG] Last message from user:", lastMessage?.content);
+
+        const targetModel = 'gemini-3-pro-preview';
+        console.log(`[DEBUG] Calling ai.models.generateContent with model: ${targetModel}`);
 
         const result = await ai.models.generateContent({
-            // User snippet asked for 'gemini-flash-latest' and thinkingConfig.
-            //model: 'gemini-3-pro-preview',
-            model: 'gemini-flash-latest',
+            model: targetModel,
             config: config,
             contents: [
                 {
@@ -134,38 +129,49 @@ Never exceed the 15x10 boundary. If a shape is too complex, simplify it to its e
             ]
         });
 
+        console.log("[DEBUG] generateContent completed successfully.");
+        
         let responseText = "";
         
         // Handle @google/genai SDK response structure
         if (result.candidates && result.candidates.length > 0) {
+            console.log("[DEBUG] Found candidates in result:", JSON.stringify(result.candidates, null, 2));
             const candidate = result.candidates[0];
             if (candidate.content && candidate.content.parts && candidate.content.parts.length > 0) {
                 responseText = candidate.content.parts[0].text || "";
+            } else {
+                console.log("[DEBUG] Candidate exists but missing content/parts.");
             }
+        } else {
+            console.log("[DEBUG] No candidates found in raw result.");
         }
         
         // Fallback or if text() method exists (some versions)
         if (!responseText && typeof (result as any).text === 'function') {
-             responseText = (result as any).text();
+            console.log("[DEBUG] Using fallback text() method.");
+            responseText = (result as any).text();
         }
 
-        console.log("Response Text:", responseText); // Debug log (optional, remove in prod)
+        console.log("[DEBUG] Final Extracted Response Text:", responseText); // Debug log
         
         try {
-           const jsonResponse = JSON.parse(responseText);
-           return NextResponse.json(jsonResponse);
+            console.log("[DEBUG] Attempting to parse response text as JSON...");
+            const jsonResponse = JSON.parse(responseText);
+            console.log("[DEBUG] JSON Parse successful!", JSON.stringify(jsonResponse).substring(0, 50) + "...");
+            return NextResponse.json(jsonResponse);
         } catch (e) {
-            console.error("Failed to parse JSON", responseText, e);
-             return NextResponse.json(
+            console.error("[DEBUG] Failed to parse JSON!", "Raw text:", responseText, "Error:", e);
+            return NextResponse.json(
                 { message: responseText, matrix: [], rows: 0, cols: 0 },
                 { status: 200 }
             );
         }
 
     } catch (error) {
-        console.error("Error in AI Teacher API:", error);
+        console.error("[DEBUG] Error caught in AI Teacher API:", error);
+        console.error("[DEBUG] Full Error Details:", JSON.stringify(error, Object.getOwnPropertyNames(error)));
         return NextResponse.json(
-            { error: "Failed to generate response" },
+            { error: "Failed to generate response", details: (error as Error).message },
             { status: 500 }
         );
     }

@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { BrainCircuit, Send, Loader2 } from 'lucide-react'; 
 import Matrix from '@/components/ui/matrix'; 
 import { cn } from '@/lib/utils'; 
+import { useESP32 } from '@/hooks/useESP32';
 
 interface Message {
     role: 'user' | 'assistant';
@@ -21,6 +22,7 @@ export default function AITeacher() {
     const [messages, setMessages] = useState<Message[]>([]);
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
+    const { setArray, enableLoop } = useESP32();
 
     const handleSubmit = async (e?: React.FormEvent) => {
         e?.preventDefault();
@@ -45,7 +47,7 @@ export default function AITeacher() {
             if (!response.ok) throw new Error('Failed to send message');
 
             const data = await response.json();
-             
+            
             // API returns 1D array. Need to convert to 2D for Matrix component.
             let matrix2D: number[][] | undefined = undefined;
             if (data.matrix && data.rows && data.cols) {
@@ -55,6 +57,8 @@ export default function AITeacher() {
                 for (let i = 0; i < rows; i++) {
                     matrix2D.push(data.matrix.slice(i * cols, (i + 1) * cols));
                 }
+                setArray(matrix2D);
+                enableLoop(true);
             }
 
             const assistantMessage: Message = {

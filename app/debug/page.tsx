@@ -13,7 +13,7 @@ import { useEffect, useRef, useState } from 'react';
 
 export default function Debug() {
     const { isConnected } = useESP32Connection();
-    const { setArray, enableLoop, getStatus, runPattern, stop, setTiming } = useESP32();
+    const { setArray, enableLoop, getStatus, stop, setTiming } = useESP32();
     const MatrixTimerRef = useRef<NodeJS.Timeout | null>(null);
     const [loopEnabled, setLoopEnabled] = useState(false);
     const [isRefreshing, setIsRefreshing] = useState(false);
@@ -36,8 +36,8 @@ export default function Debug() {
         setIsRefreshing(true);
         try {
             const status = await getStatus();
-            setHoldTime(status.holdTime)
-            setOffTime(status.offTime)
+            setHoldTime(status.pixelOnTime)
+            setOffTime(status.pixelOffTime)
             setLoopEnabled(status.loopEnabled)
             console.log("✅ Status refreshed:", status);
         } catch (error) {
@@ -127,27 +127,7 @@ export default function Debug() {
             {/* Matrix */}
             <Matrix onChange={handleAutoSave} initialData={isRaiseAll} />
 
-            {/* Patterns */}
-            <div className="grid grid-cols-3 grid-rows-2 gap-1">
-            {[
-                { name: 'Wave', value: 'wave' },
-                { name: 'Spiral', value: 'spiral' },
-                { name: 'Checkerboard', value: 'checkerboard' },
-                { name: 'Horizontal', value: 'horizontal' },
-                { name: 'Vertical', value: 'vertical' },
-                { name: 'Diagonal', value: 'diagonal' },
-                //{ name: 'Raise All', value: 'raiseall' },
-                //{ name: 'Lower All', value: 'lowerall' }
-            ].map(({ name, value }) => (
-                <Button
-                    key={value}
-                    onClick={() => runPattern(value as any)}
-                    disabled={!isConnected}
-                >
-                    {name}
-                </Button>
-                ))}
-            </div>
+
 
             {/*Timing Configuration */}
             { (holdTime !== undefined && offTime !== undefined) ? (

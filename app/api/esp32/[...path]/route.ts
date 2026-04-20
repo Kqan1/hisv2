@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-const ESP32_BASE_URL = 'http://192.168.10.204';
+//const ESP32_BASE_URL = 'http://192.168.4.1';
+const ESP32_BASE_URL = `http://${process.env.ESP32_BASE_URL}`
 
 export async function GET(
     request: NextRequest,

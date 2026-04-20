@@ -61,7 +61,7 @@ export function LectureRecordsPageClient() {
         }
     }, [fetchRecords])
 
-    console.log("records page client: ",records)
+    // console.log("records page client: ",records)
 
     if (isLoading) {
         return (
