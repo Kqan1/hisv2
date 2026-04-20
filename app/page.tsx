@@ -1,52 +1,65 @@
 import { buttonVariants } from "@/components/ui/button";
 import { Heading } from "@/components/ui/heading";
 import { cn } from "@/lib/utils";
-import { BrainCircuit, FileText, HomeIcon, NotebookIcon, SettingsIcon } from "lucide-react";
+import {
+    BrainCircuit,
+    FileText,
+    HomeIcon,
+    NotebookIcon,
+    SettingsIcon,
+} from "lucide-react";
 import Link from "next/link";
 
 type MenuItemType = {
     label: string;
     href: string;
-    icon: React.ReactNode; 
+    icon: React.ReactNode;
 };
 
 const menuItems: MenuItemType[] = [
     {
         label: "Manual Writing",
         href: "/manual-writing",
-        icon: <SettingsIcon className="size-6" />,
+        icon: <SettingsIcon className="size-10" />,
     },
     {
         label: "Notes",
         href: "/notes",
-        icon: <NotebookIcon className="size-6" />,
-    },{
+        icon: <NotebookIcon className="size-10" />,
+    },
+    {
         label: "Lecture Records",
         href: "/lecture-records",
-        icon: <NotebookIcon className="size-6" />,
-    },{
+        icon: <NotebookIcon className="size-10" />,
+    },
+    {
         label: "AI Teacher",
         href: "/ai-teacher",
-        icon: <BrainCircuit className="size-6" />,
-    },{
+        icon: <BrainCircuit className="size-10" />,
+    },
+    {
         label: "PDF to Matrix",
         href: "/pdf",
-        icon: <FileText className="size-6" />,
-    }
+        icon: <FileText className="size-10" />,
+    },
 ];
 
 const MenuItem = ({ item }: { item: MenuItemType }) => {
     return (
         <Link
             href={item.href}
-            className={cn("flex items-center justify-center flex-col gap-2 border rounded aspect-square size-full!", buttonVariants({ variant: "outline" }))}
+            className={cn(
+                "flex items-center justify-center flex-col gap-2 border rounded aspect-square size-full!",
+                buttonVariants({ variant: "outline" }),
+            )}
         >
             {item.icon}
-            <span className="text-xl text-balance text-center">{item.label}</span>
+            <span className="text-xl text-balance text-center">
+                {item.label}
+            </span>
         </Link>
     );
 };
-
 
 export default function Home() {
     return (
@@ -57,7 +70,7 @@ export default function Home() {
                 Icon={<HomeIcon size={42} />}
             />
 
-            <div className="grid grid-cols-3 grid-rows-auto gap-2">
+            <div className="grid grid-cols-2 grid-rows-auto gap-2">
                 {menuItems.map((item) => (
                     <MenuItem key={item.href} item={item} />
                 ))}

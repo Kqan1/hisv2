@@ -2,7 +2,7 @@
 import { useESP32Connection } from '@/hooks/useESP32Connection';
 import { cn } from '@/lib/utils';
 
-const DISABLE_CONNECTION_INDICATOR = true; // 👈 geçici kapatma
+const DISABLE_CONNECTION_INDICATOR = false; // 👈 geçici kapatma
 
 export function ConnectionIndicator({ className, ...props }: { className?: string }) {
 
@@ -24,4 +24,4 @@ export function ConnectionIndicator({ className, ...props }: { className?: strin
             <span className="text-md font-medium">{config.text}</span>
         </div>
     );
-}
+};

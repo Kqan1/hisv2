@@ -1,12 +1,12 @@
 "use client";
 
-import { useState, useEffect, use, useRef } from "react";
+import { useState, useEffect, use, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Matrix from "@/components/ui/matrix";
 import { Button } from "@/components/ui/button";
 import { useESP32 } from "@/hooks/useESP32";
 import { cn } from "@/lib/utils";
-import { PlayIcon, SquareIcon } from "lucide-react";
+import { PlayIcon, SquareIcon, MessageSquareIcon, SendIcon, ChevronDownIcon, ChevronUpIcon, Loader2Icon } from "lucide-react";
 
 type FrameWithMatrix = {
     id: number;
@@ -53,6 +53,58 @@ export default function LectureRecordDetailClient({
     const [saving, setSaving] = useState(false);
     const [isPlaying, setIsPlaying] = useState(false);
     const [currentFrameIndex, setCurrentFrameIndex] = useState(0);
+
+    // Ask AI state
+    type ChatMessage = { role: "user" | "ai"; content: string };
+    const [chatOpen, setChatOpen] = useState(false);
+    const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+    const [chatInput, setChatInput] = useState("");
+    const [chatLoading, setChatLoading] = useState(false);
+    const chatEndRef = useRef<HTMLDivElement>(null);
+
+    const scrollToBottom = useCallback(() => {
+        chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }, []);
+
+    useEffect(() => {
+        scrollToBottom();
+    }, [chatMessages, scrollToBottom]);
+
+    const handleAskAI = async () => {
+        const question = chatInput.trim();
+        if (!question || chatLoading) return;
+
+        setChatMessages((prev) => [...prev, { role: "user", content: question }]);
+        setChatInput("");
+        setChatLoading(true);
+
+        try {
+            const res = await fetch(`/api/lecture-records/${id}/ask`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ question }),
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                setChatMessages((prev) => [
+                    ...prev,
+                    { role: "ai", content: `Error: ${data.error || "Failed to get answer"}` },
+                ]);
+            } else {
+                setChatMessages((prev) => [
+                    ...prev,
+                    { role: "ai", content: data.answer },
+                ]);
+            }
+        } catch {
+            setChatMessages((prev) => [
+                ...prev,
+                { role: "ai", content: "Error: Failed to connect to AI service." },
+            ]);
+        } finally {
+            setChatLoading(false);
+        }
+    };
 
     useEffect(() => {
         const recordId = parseInt(id, 10);
@@ -376,6 +428,95 @@ export default function LectureRecordDetailClient({
                     <div className="text-center text-xs text-muted-foreground">
                         Frame: {currentFrameIndex + 1} / {record.frames.length}{" "}
                         (Time: {currentFrame.deltaTime}ms)
+                    </div>
+                )}
+            </div>
+
+            {/* Ask AI Section */}
+            <div className="border rounded-lg overflow-hidden">
+                <button
+                    type="button"
+                    onClick={() => setChatOpen(!chatOpen)}
+                    className="w-full flex items-center justify-between px-4 py-3 bg-muted/30 hover:bg-muted/50 transition-colors"
+                >
+                    <div className="flex items-center gap-2 font-medium text-sm">
+                        <MessageSquareIcon className="size-4" />
+                        Ask AI about this recording
+                    </div>
+                    {chatOpen ? (
+                        <ChevronUpIcon className="size-4" />
+                    ) : (
+                        <ChevronDownIcon className="size-4" />
+                    )}
+                </button>
+
+                {chatOpen && (
+                    <div className="border-t">
+                        {/* Chat messages */}
+                        <div className="max-h-[300px] overflow-y-auto p-4 space-y-3">
+                            {chatMessages.length === 0 && (
+                                <p className="text-sm text-muted-foreground text-center py-4">
+                                    Ask a question about this lecture recording...
+                                </p>
+                            )}
+                            {chatMessages.map((msg, i) => (
+                                <div
+                                    key={i}
+                                    className={cn(
+                                        "flex",
+                                        msg.role === "user" ? "justify-end" : "justify-start",
+                                    )}
+                                >
+                                    <div
+                                        className={cn(
+                                            "max-w-[80%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap",
+                                            msg.role === "user"
+                                                ? "bg-primary text-primary-foreground"
+                                                : "bg-muted",
+                                        )}
+                                    >
+                                        {msg.content}
+                                    </div>
+                                </div>
+                            ))}
+                            {chatLoading && (
+                                <div className="flex justify-start">
+                                    <div className="bg-muted rounded-lg px-3 py-2 text-sm flex items-center gap-2">
+                                        <Loader2Icon className="size-3 animate-spin" />
+                                        Thinking...
+                                    </div>
+                                </div>
+                            )}
+                            <div ref={chatEndRef} />
+                        </div>
+
+                        {/* Chat input */}
+                        <div className="border-t p-3 flex gap-2">
+                            <input
+                                value={chatInput}
+                                onChange={(e) => setChatInput(e.target.value)}
+                                onKeyDown={(e) => {
+                                    if (e.key === "Enter" && !e.shiftKey) {
+                                        e.preventDefault();
+                                        handleAskAI();
+                                    }
+                                }}
+                                placeholder="Ask a question..."
+                                disabled={chatLoading}
+                                className={cn(
+                                    "flex-1 h-9 rounded-md border border-input bg-background px-3 py-1 text-sm",
+                                    "placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                                    "disabled:cursor-not-allowed disabled:opacity-50",
+                                )}
+                            />
+                            <Button
+                                size="sm"
+                                onClick={handleAskAI}
+                                disabled={chatLoading || !chatInput.trim()}
+                            >
+                                <SendIcon className="size-4" />
+                            </Button>
+                        </div>
                     </div>
                 )}
             </div>

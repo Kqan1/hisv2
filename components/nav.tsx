@@ -10,23 +10,29 @@ type NavItemType = {
 };
 
 const navItems: NavItemType[] = [
-    { label: "Home", href: "/", icon: <HomeIcon size={20} /> },
-    { label: "Settings", href: "/settings", icon: <SettingsIcon size={20} /> },
-    { label: "Debug", href: "/debug", icon: <BugIcon size={20} /> },
+    { label: "Home", href: "/", icon: <HomeIcon size={30} /> },
+    { label: "Settings", href: "/settings", icon: <SettingsIcon size={30} /> },
+    { label: "Debug", href: "/debug", icon: <BugIcon size={30} /> },
 ];
 
-const NavItem = ({ item, isActive }: { item: NavItemType; isActive: boolean }) => {
+const NavItem = ({
+    item,
+    isActive,
+}: {
+    item: NavItemType;
+    isActive: boolean;
+}) => {
     return (
         <Link
             href={item.href}
             className={`flex flex-col items-center gap-1 px-4 py-2 transition-colors ${
-                isActive 
-                ? "text-zinc-900 dark:text-zinc-100" 
-                : "text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"
+                isActive
+                    ? "text-zinc-900 dark:text-zinc-100"
+                    : "text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"
             }`}
         >
             {item.icon}
-            <span className="text-xs font-medium">{item.label}</span>
+            <span className="font-medium">{item.label}</span>
         </Link>
     );
 };
@@ -39,12 +45,12 @@ export default function Nav() {
             <div className="grid grid-cols-3">
                 {navItems.map((item) => {
                     const isActive = pathname === item.href;
-                    
+
                     return (
-                        <NavItem 
-                            key={item.href} 
-                            item={item} 
-                            isActive={isActive} 
+                        <NavItem
+                            key={item.href}
+                            item={item}
+                            isActive={isActive}
                         />
                     );
                 })}
