@@ -1,4 +1,4 @@
-import { GoogleGenAI, HarmBlockThreshold, HarmCategory, Type } from "@google/genai";
+import { GoogleGenAI, ThinkingLevel, Type } from "@google/genai";
 import { NextResponse } from "next/server";
 
 export async function POST(req: Request) {
@@ -20,25 +20,10 @@ export async function POST(req: Request) {
         const ai = new GoogleGenAI({ apiKey });
 
         const config = {
+            thinkingConfig: {
+                thinkingLevel: ThinkingLevel.LOW,
+            },
             temperature: 0.3,
-            safetySettings: [
-                {
-                    category: HarmCategory.HARM_CATEGORY_HARASSMENT,
-                    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-                },
-                {
-                    category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
-                    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-                },
-                {
-                    category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-                    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-                },
-                {
-                    category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-                    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-                },
-            ],
             responseMimeType: 'application/json',
             responseSchema: {
                 type: Type.OBJECT,
@@ -113,7 +98,7 @@ Never exceed the 15x10 boundary. If a shape is too complex, simplify it to its e
         const lastMessage = messages[messages.length - 1];
         console.log("[DEBUG] Last message from user:", lastMessage?.content);
 
-        const targetModel = 'gemini-3-pro-preview';
+        const targetModel = 'gemini-flash-latest';
         console.log(`[DEBUG] Calling ai.models.generateContent with model: ${targetModel}`);
 
         const result = await ai.models.generateContent({
