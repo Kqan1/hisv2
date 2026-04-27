@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import db from '@/lib/db';
 import type { Prisma } from '@prisma/client';
+import { ESP32_CONFIG, DEVICE_MODELS } from '@/lib/config';
 
 const SORT_TO_ORDER: Record<string, { [key: string]: 'asc' | 'desc' }> = {
     'title-asc': { title: 'asc' },
@@ -74,7 +75,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
     try {
         const body = await request.json();
-        const { title, matrix } = body as { title?: string; matrix?: number[][] };
+        const { title, matrix, rows: clientRows, cols: clientCols, deviceModelId } = body as { title?: string; matrix?: number[][]; rows?: number; cols?: number; deviceModelId?: string };
 
         if (!title || typeof title !== 'string' || title.trim().length === 0) {
             return NextResponse.json(
@@ -83,8 +84,9 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        const rows = 10;
-        const cols = 15;
+        const modelConfig = DEVICE_MODELS.find(m => m.id === deviceModelId) || DEVICE_MODELS[0];
+        const rows = clientRows || modelConfig.rows;
+        const cols = clientCols || modelConfig.cols;
         const initialMatrix =
             Array.isArray(matrix) && matrix.length === rows && matrix.every((row) => Array.isArray(row) && row.length === cols)
                 ? matrix
@@ -95,6 +97,7 @@ export async function POST(request: NextRequest) {
         const note = await db.note.create({
             data: {
                 title: title.trim().slice(0, 255),
+                deviceModelId: deviceModelId || "amc-1",
                 pixelMatrix: {
                     create: {
                         matrix: initialMatrix,

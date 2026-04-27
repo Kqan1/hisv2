@@ -1,4 +1,5 @@
 'use client';
+import { useModel } from '@/components/providers/model-context';
 import { ConnectionIndicator } from '@/components/ConnectionIndicator';
 import { Button } from '@/components/ui/button';
 import { Heading } from '@/components/ui/heading';
@@ -10,10 +11,12 @@ import { useESP32 } from '@/hooks/useESP32';
 import { useESP32Connection } from '@/hooks/useESP32Connection';
 import { Bug, RotateCw } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { toast } from 'sonner';
 
 export default function Debug() {
     const { isConnected } = useESP32Connection();
     const { setArray, enableLoop, getStatus, stop, setTiming } = useESP32();
+    const { activeModel } = useModel();
     const MatrixTimerRef = useRef<NodeJS.Timeout | null>(null);
     const [loopEnabled, setLoopEnabled] = useState(false);
     const [isRefreshing, setIsRefreshing] = useState(false);
@@ -42,6 +45,7 @@ export default function Debug() {
             console.log("✅ Status refreshed:", status);
         } catch (error) {
             console.error("❌ Refresh failed:", error);
+            toast.error('Failed to refresh status');
         } finally {
             setIsRefreshing(false);
         };
@@ -112,8 +116,8 @@ export default function Debug() {
                     </Button>
                     <Button
                         onClick={ async () => {
-                            setArray(Array(10).fill(1).map(() => Array(15).fill(1)), { cycle: true });
-                            setIsRaiseAll(Array(10).fill(1).map(() => Array(15).fill(1)));
+                            setArray(Array(activeModel.rows).fill(1).map(() => Array(activeModel.cols).fill(1)), { cycle: true });
+                            setIsRaiseAll(Array(activeModel.rows).fill(1).map(() => Array(activeModel.cols).fill(1)));
                             enableLoop(true)
                             setLoopEnabled(true)
                         }}

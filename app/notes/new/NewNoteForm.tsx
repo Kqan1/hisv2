@@ -1,19 +1,31 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Matrix from '@/components/ui/matrix'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { useModel } from '@/components/providers/model-context'
+import { toast } from 'sonner'
 
 export function NewNoteForm() {
     const router = useRouter()
+    const { activeModel } = useModel()
     const [title, setTitle] = useState('')
     const [matrix, setMatrix] = useState<number[][]>(() =>
-        Array(10)
+        Array(activeModel.rows)
             .fill(0)
-            .map(() => Array(15).fill(0))
+            .map(() => Array(activeModel.cols).fill(0))
     )
+
+    useEffect(() => {
+        setMatrix(
+            Array(activeModel.rows)
+                .fill(0)
+                .map(() => Array(activeModel.cols).fill(0))
+        )
+    }, [activeModel.rows, activeModel.cols])
+
     const [isSubmitting, setIsSubmitting] = useState(false)
     const [error, setError] = useState<string | null>(null)
 
@@ -22,6 +34,7 @@ export function NewNoteForm() {
         setError(null)
         if (!title.trim()) {
             setError('Title is required')
+            toast.error('Title is required')
             return
         }
         setIsSubmitting(true)
@@ -29,16 +42,23 @@ export function NewNoteForm() {
             const res = await fetch('/api/notes', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ title: title.trim(), matrix }),
+                body: JSON.stringify({ 
+                    title: title.trim(), 
+                    matrix,
+                    deviceModelId: activeModel.id
+                }),
             })
             const data = await res.json()
             if (!res.ok) {
-                setError(data.error ?? 'Failed to create note')
+                const msg = data.error ?? 'Failed to create note'
+                setError(msg)
+                toast.error(msg)
                 return
             }
             router.push(`/notes/${data.id}`)
         } catch {
             setError('Failed to create note')
+            toast.error('Failed to create note')
         } finally {
             setIsSubmitting(false)
         }
@@ -69,6 +89,8 @@ export function NewNoteForm() {
                 <div className="border rounded-lg p-2 min-h-[200px]">
                     <Matrix
                         initialData={matrix}
+                        rows={activeModel.rows}
+                        cols={activeModel.cols}
                         onChange={setMatrix}
                         editable
                     />

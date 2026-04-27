@@ -4,13 +4,14 @@ import LectureRecordsList, { LectureRecordsToolbar } from "@/app/lecture-records
 import { LectureRecordsSkeleton } from "@/app/lecture-records/LectureRecordsSkeleton";
 import { Button } from "@/components/ui/button";
 import { SortButton } from "@/components/ui/sortButton";
-import { Prisma } from "@prisma/client";
+import { LectureRecordSummary } from "@/lib/lecture-records-store";
 import { Separator } from "@radix-ui/react-separator";
 import { Ghost } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useState } from "react";
+import { toast } from "sonner";
 
-type RecordsType = Prisma.LectureRecordGetPayload<{ include: { frames: { include: { pixelMatrix: true } }, _count: true } }>
+type RecordsType = LectureRecordSummary;
 
 export function LectureRecordsPageClient() {
     const [deleteMode, setDeleteMode] = useState<boolean>(false)
@@ -39,7 +40,9 @@ export function LectureRecordsPageClient() {
 
             setRecords(data.data)
         } catch (err) {
-            setError(err instanceof Error ? err.message : 'Bir hata oluştu.')
+            const msg = err instanceof Error ? err.message : 'Bir hata oluştu.'
+            setError(msg)
+            toast.error(msg)
             console.error('Error fetching records:', err)
         } finally {
             setIsLoading(false)

@@ -1,3 +1,31 @@
+// ========================================================================
+// DEVICE MODEL DEFINITIONS
+// ========================================================================
+
+export type DeviceModel = {
+    id: string;
+    name: string;
+    rows: number;
+    cols: number;
+    description?: string;
+    image?: string;
+};
+
+export const DEVICE_MODELS: DeviceModel[] = [
+    { id: 'amc-1', name: 'AMC-1', rows: 10, cols: 15, description: 'Standard Model', image: '/devices/amc-1.png' },
+    { id: 'amc-3', name: 'AMC-3', rows: 20, cols: 20, description: 'New Larger Model', image: '/devices/amc-2.png' },
+];
+
+export const DEFAULT_MODEL_ID = 'amc-1';
+
+export function getModelById(id: string): DeviceModel {
+    return DEVICE_MODELS.find(m => m.id === id) || DEVICE_MODELS.find(m => m.id === DEFAULT_MODEL_ID)!;
+}
+
+// ========================================================================
+// SITE CONFIG
+// ========================================================================
+
 export type SiteConfig = typeof siteConfig;
 
 
@@ -24,12 +52,14 @@ export const siteConfig = {
     links: {
         url: "http://localhost:3000",
         github: "https://github.com/Kqan1",
-        esp32_base_url: "http://192.168.1.100",
     },
 };
 
 export const ESP32_CONFIG = {
-    ip: process.env.NEXT_PUBLIC_ESP32_IP || '192.168.10.204',
+    // Default rows/cols (used as server-side fallback)
+    rows: getModelById(DEFAULT_MODEL_ID).rows,
+    cols: getModelById(DEFAULT_MODEL_ID).cols,
+    ip: process.env.NEXT_PUBLIC_ESP32_IP || "http://[IP_ADDRESS]",
     useProxy: process.env.NEXT_PUBLIC_USE_PROXY === 'true', // Yeni
     password: process.env.NEXT_PUBLIC_ESP32_PASSWORD || '7580',
     apiUser: process.env.NEXT_PUBLIC_ESP32_USER || 'api_user',

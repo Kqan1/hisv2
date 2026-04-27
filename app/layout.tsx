@@ -14,7 +14,7 @@ export const metadata: Metadata = siteConfig.metadata;
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
     return (
         <html lang="en" className="h-full" suppressHydrationWarning>
-            <body className={cn("bg-background h-full overflow-hidden font-sans antialiased text-foreground",fontSans.variable)}>
+            <body suppressHydrationWarning className={cn("bg-background h-full overflow-hidden font-sans antialiased text-foreground",fontSans.variable)}>
                 <Providers>
                     <main className="flex h-full w-full justify-center">
                         <MaxWidthWrapper className="flex m-auto h-full max-h-[80vh] flex-col">

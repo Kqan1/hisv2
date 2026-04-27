@@ -10,6 +10,7 @@ import { NotesSkeleton } from './NotesSkeleton'
 import type { Prisma } from '@prisma/client'
 import { SortButton } from '@/components/ui/sortButton'
 import { Ghost } from 'lucide-react'
+import { toast } from 'sonner'
 
 type NoteWithMatrix = Prisma.NoteGetPayload<{ include: { pixelMatrix: true } }>
 
@@ -40,7 +41,9 @@ export function NotesPageClient() {
 
             setNotes(data)
         } catch (err) {
-            setError(err instanceof Error ? err.message : 'Bir hata oluştu.')
+            const msg = err instanceof Error ? err.message : 'Bir hata oluştu.'
+            setError(msg)
+            toast.error(msg)
             console.error('Error fetching notes:', err)
         } finally {
             setIsLoading(false)

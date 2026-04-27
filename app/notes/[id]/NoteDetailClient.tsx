@@ -6,10 +6,14 @@ import Matrix from '@/components/ui/matrix'
 import { Button } from '@/components/ui/button'
 import { useESP32 } from '@/hooks/useESP32'
 import { cn } from '@/lib/utils'
+import { useModel } from '@/components/providers/model-context'
+import { toast } from 'sonner'
+import { TriangleAlertIcon } from 'lucide-react'
 
 type NoteWithMatrix = {
     id: number
     title: string
+    deviceModelId: string
     createdAt: string
     updatedAt: string
     pixelMatrix: {
@@ -29,6 +33,7 @@ export function NoteDetailClient({ params }: { params: Promise<{ id: string }> }
     const { id } = use(params)
     const router = useRouter()
     const { setArray } = useESP32()
+    const { activeModel, models } = useModel()
     const [note, setNote] = useState<NoteWithMatrix | null>(null)
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
@@ -61,7 +66,11 @@ export function NoteDetailClient({ params }: { params: Promise<{ id: string }> }
                 }
             })
             .catch((err) => {
-                if (!cancelled) setError(err.message ?? 'Failed to load note')
+                if (!cancelled) {
+                    const msg = err.message ?? 'Failed to load note'
+                    setError(msg)
+                    toast.error(msg)
+                }
             })
             .finally(() => {
                 if (!cancelled) setLoading(false)
@@ -75,7 +84,7 @@ export function NoteDetailClient({ params }: { params: Promise<{ id: string }> }
     useEffect(() => {
         if (!note?.pixelMatrix?.matrix) return
         const m = note.pixelMatrix.matrix as number[][]
-        if (!Array.isArray(m) || m.length !== 10 || (m[0] && m[0].length !== 15)) return
+        if (!Array.isArray(m) || m.length !== activeModel.rows || (m[0] && m[0].length !== activeModel.cols)) return
         setArray(m, { cycle: true })
     }, [note?.id, setArray])
 
@@ -91,13 +100,16 @@ export function NoteDetailClient({ params }: { params: Promise<{ id: string }> }
             })
             const data = await res.json()
             if (!res.ok) {
-                setError(data.error ?? 'Failed to update note')
+                const msg = data.error ?? 'Failed to update note'
+                setError(msg)
+                toast.error(msg)
                 return
             }
             setNote(data)
             setEditing(false)
         } catch {
             setError('Failed to update note')
+            toast.error('Failed to update note')
         } finally {
             setSaving(false)
         }
@@ -121,6 +133,32 @@ export function NoteDetailClient({ params }: { params: Promise<{ id: string }> }
                 </Button>
             </div>
         )
+    }
+
+    const isModelMismatch = note.deviceModelId !== activeModel.id
+    const recordModel = models.find(m => m.id === note.deviceModelId) || activeModel
+
+    if (isModelMismatch) {
+        return (
+            <div className="flex flex-col items-center justify-center min-h-[60vh] text-center space-y-6">
+                <div className="bg-destructive/10 p-6 rounded-full border border-destructive/20">
+                    <TriangleAlertIcon className="size-16 text-destructive" />
+                </div>
+                <div className="space-y-2 max-w-md">
+                    <h2 className="text-3xl font-bold tracking-tight text-destructive">Model Mismatch</h2>
+                    <p className="text-muted-foreground text-lg">
+                        This note was created with <strong>{recordModel.name}</strong> model. 
+                        To view or edit it, please change your device model in Settings.
+                    </p>
+                </div>
+                <Button
+                    size="lg"
+                    onClick={() => router.push("/notes")}
+                >
+                    Back to notes
+                </Button>
+            </div>
+        );
     }
 
     const matrixData = (note.pixelMatrix?.matrix as number[][]) ?? matrix
@@ -152,6 +190,8 @@ export function NoteDetailClient({ params }: { params: Promise<{ id: string }> }
                     <Matrix
                         key={editing ? 'edit' : 'view'}
                         initialData={editing ? matrix : matrixData}
+                        rows={recordModel.rows}
+                        cols={recordModel.cols}
                         onChange={setMatrix}
                         editable={editing}
                     />

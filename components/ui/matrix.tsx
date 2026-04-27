@@ -1,5 +1,6 @@
 "use client";
 import { useState, useRef, useEffect } from "react";
+import { useModel } from "@/components/providers/model-context";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
@@ -17,11 +18,14 @@ interface MatrixProps {
 export default function Matrix({
     initialData,
     onChange,
-    rows = 10,
-    cols = 15,
+    rows: rowsProp,
+    cols: colsProp,
     disabled = false,
     editable = true,
 }: MatrixProps) {
+    const { activeModel } = useModel();
+    const rows = rowsProp ?? activeModel.rows;
+    const cols = colsProp ?? activeModel.cols;
     const [grid, setGrid] = useState<number[][]>(
         () =>
             initialData ||

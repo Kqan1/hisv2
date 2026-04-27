@@ -1,14 +1,14 @@
 "use client";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { Prisma } from "@prisma/client";
 import { PlusIcon, TrashIcon, XIcon } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { useModel } from "@/components/providers/model-context";
 import Link from "next/link";
 import { useState } from "react";
 
-type RecordsType = Prisma.LectureRecordGetPayload<{
-    include: { frames: { include: { pixelMatrix: true } }; _count: true };
-}>;
+import { LectureRecordSummary } from "@/lib/lecture-records-store";
+type RecordsType = LectureRecordSummary;
 
 function formatRecordDate(createdAt: Date | string): string {
     const date =
@@ -74,6 +74,8 @@ function LectureRecordCard({
     onDelete,
 }: LectureRecordCardProps) {
     const [isHovered, setIsHovered] = useState(false);
+    const { models, activeModel } = useModel();
+    const recordModel = models.find(m => m.id === RecordData.deviceModelId) || activeModel;
 
     if (deleteMode) {
         return (
@@ -94,12 +96,19 @@ function LectureRecordCard({
                         </div>
                     </div>
                 )}
-                <h3 className="text-lg font-bold leading-none">
-                    {RecordData.title}
-                </h3>
-                <small className="text-sm text-muted-foreground">
-                    created at: {formatRecordDate(RecordData.createdAt)}
-                </small>
+                <div className="flex justify-between items-start w-full gap-2">
+                    <div className="flex flex-col gap-1.5">
+                        <h3 className="text-lg font-bold leading-none">
+                            {RecordData.title}
+                        </h3>
+                        <small className="text-sm text-muted-foreground">
+                            created at: {formatRecordDate(RecordData.createdAt)}
+                        </small>
+                    </div>
+                    <Badge variant="secondary" className="text-[10px] uppercase font-mono shrink-0">
+                        {recordModel.name}
+                    </Badge>
+                </div>
             </div>
         );
     }
@@ -112,12 +121,19 @@ function LectureRecordCard({
                 "size-full flex flex-col items-stretch p-3 text-left",
             )}
         >
-            <h3 className="text-lg font-bold leading-none">
-                {RecordData.title}
-            </h3>
-            <small className="text-sm text-muted-foreground">
-                created at: {formatRecordDate(RecordData.createdAt)}
-            </small>
+            <div className="flex justify-between items-start w-full gap-2">
+                <div className="flex flex-col gap-1.5">
+                    <h3 className="text-lg font-bold leading-none">
+                        {RecordData.title}
+                    </h3>
+                    <small className="text-sm text-muted-foreground">
+                        created at: {formatRecordDate(RecordData.createdAt)}
+                    </small>
+                </div>
+                <Badge variant="secondary" className="text-[10px] uppercase font-mono shrink-0">
+                    {recordModel.name}
+                </Badge>
+            </div>
         </Link>
     );
 }
@@ -126,9 +142,9 @@ export default function LectureRecordsList({
     records,
     deleteMode = false,
 }: LectureRecordsListProps) {
-    const [deletingId, setDeletingId] = useState<number | null>(null);
+    const [deletingId, setDeletingId] = useState<string | null>(null);
 
-    const handleDelete = async (recordId: number) => {
+    const handleDelete = async (recordId: string) => {
         if (deletingId) return; // Zaten bir silme işlemi devam ediyor
 
         setDeletingId(recordId);

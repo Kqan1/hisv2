@@ -1,37 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
-import db from "@/lib/db";
 import fs from "fs/promises";
 import path from "path";
 import { v4 as uuidv4 } from "uuid";
+import { getLectureRecords, createLectureRecord } from "@/lib/lecture-records-store";
 
 export async function GET() {
-    const data = await db.lectureRecord.findMany({
-        orderBy: { createdAt: "desc" },
-        select: {
-            id: true,
-            title: true,
-            audioPath: true, // This is now the primary source
-            createdAt: true,
-            updatedAt: true,
-            _count: {
-                select: { frames: true },
-            },
-            frames: {
-                orderBy: { deltaTime: "desc" },
-                include: {
-                    pixelMatrix: true,
-                },
-            },
-        },
-    });
-
+    const data = await getLectureRecords();
     return NextResponse.json({ data }, { status: 200 });
 }
 
 export async function POST(request: NextRequest) {
     try {
         const body = await request.json();
-        const { title, frames, audioData } = body;
+        const { title, frames, audioData, deviceModelId } = body;
 
         console.log("Received API POST:", { title, framesCount: frames?.length, audioDataLength: audioData?.length });
 
@@ -53,7 +34,7 @@ export async function POST(request: NextRequest) {
         if (audioData) {
             try {
                 const buffer = Buffer.from(audioData, 'base64');
-                const uploadDir = path.join(process.cwd(), "public", "uploads", "audio");
+                const uploadDir = path.join(process.cwd(), "data", "lecture-records", "audio");
                 
                 await fs.mkdir(uploadDir, { recursive: true });
                 
@@ -62,11 +43,9 @@ export async function POST(request: NextRequest) {
                 
                 await fs.writeFile(filePath, buffer);
                 
-                audioPath = `/uploads/audio/${fileName}`;
+                audioPath = `/api/lecture-records/audio/${fileName}`;
             } catch (err) {
                 console.error("Error saving audio file:", err);
-                // Continue without audio or fail? prefer logging and continuing if possible, or failing?
-                // User expects audio.
                 return NextResponse.json(
                      { error: "Failed to save audio file" },
                      { status: 500 }
@@ -74,43 +53,13 @@ export async function POST(request: NextRequest) {
             }
         }
 
-        // Transaction to ensure all data is created or nothing is
-        // We set a higher timeout for large records
-        const result = await db.$transaction(
-            async (tx) => {
-                const lectureRecord = await tx.lectureRecord.create({
-                    data: {
-                        title: title.trim(),
-                        audioPath: audioPath,
-                        // audioData is no longer saved
-                    },
-                });
-
-                // Create frames with their pixel matrices
-                // We cannot use createMany for nested writes, so we must map and create
-                // Optimization: using Promise.all to run these in parallel within the transaction
-                const framePromises = frames.map((frame: any) =>
-                    tx.frame.create({
-                        data: {
-                            lectureRecordId: lectureRecord.id,
-                            deltaTime: frame.deltaTime,
-                            pixelMatrix: {
-                                create: {
-                                    matrix: frame.matrix,
-                                },
-                            },
-                        },
-                    })
-                );
-
-                await Promise.all(framePromises);
-
-                return lectureRecord;
-            },
+        const result = await createLectureRecord(
             {
-                maxWait: 10000,
-                timeout: 30000, // Increased timeout for larger records
+                title: title.trim(),
+                deviceModelId: deviceModelId || "amc-1",
+                audioPath: audioPath,
             },
+            frames
         );
 
         return NextResponse.json(result, { status: 201 });

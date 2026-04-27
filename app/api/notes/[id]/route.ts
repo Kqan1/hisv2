@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import db from '@/lib/db';
 import type { Prisma } from '@prisma/client';
+import { ESP32_CONFIG, DEVICE_MODELS } from '@/lib/config';
 
 type NoteWithMatrix = Prisma.NoteGetPayload<{ include: { pixelMatrix: true } }>;
 
@@ -34,14 +35,11 @@ export async function GET(
     }
 }
 
-const ROWS = 10;
-const COLS = 15;
-
-function isValidMatrix(matrix: unknown): matrix is number[][] {
+function isValidMatrix(matrix: unknown, rows: number, cols: number): matrix is number[][] {
     return (
         Array.isArray(matrix) &&
-        matrix.length === ROWS &&
-        matrix.every((row) => Array.isArray(row) && row.length === COLS)
+        matrix.length === rows &&
+        matrix.every((row) => Array.isArray(row) && row.length === cols)
     );
 }
 
@@ -64,6 +62,9 @@ export async function PATCH(
         const body = await request.json().catch(() => ({}));
         const title = typeof body.title === 'string' ? body.title.trim().slice(0, 255) : undefined;
         const matrix = body.matrix;
+        const modelConfig = DEVICE_MODELS.find((m) => m.id === existing.deviceModelId) || DEVICE_MODELS[0];
+        const rows = body.rows || modelConfig.rows;
+        const cols = body.cols || modelConfig.cols;
         if (title !== undefined) {
             await db.note.update({
                 where: { id: noteId },
@@ -71,7 +72,7 @@ export async function PATCH(
             });
         }
         if (matrix !== undefined) {
-            if (!isValidMatrix(matrix)) {
+            if (!isValidMatrix(matrix, rows, cols)) {
                 return NextResponse.json({ error: 'Invalid matrix' }, { status: 400 });
             }
             if (existing.pixelMatrix?.id) {

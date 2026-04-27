@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import db from "@/lib/db";
 import fs from "fs/promises";
 import path from "path";
+import { getLectureRecordById, updateLectureRecord, deleteLectureRecord } from "@/lib/lecture-records-store";
 
 export async function GET(
     request: NextRequest,
@@ -9,34 +9,20 @@ export async function GET(
 ) {
     try {
         const { id } = await params;
-        const recordId = parseInt(id);
 
-        if (isNaN(recordId)) {
-            return NextResponse.json(
-                { error: "Invalid record ID" },
-                { status: 400 },
-            );
-        }
-
-        const record = await db.lectureRecord.findUnique({
-            where: { id: recordId },
-            include: {
-                frames: {
-                    include: {
-                        pixelMatrix: true,
-                    },
-                    orderBy: {
-                        deltaTime: "asc",
-                    },
-                },
-            },
-        });
+        const record = await getLectureRecordById(id);
 
         if (!record) {
             return NextResponse.json(
                 { error: "Record not found" },
                 { status: 404 },
             );
+        }
+
+        // The store already returns frames ordered by their creation/deltaTime,
+        // but let's ensure they're sorted by deltaTime ascending just in case
+        if (record.frames) {
+            record.frames.sort((a, b) => a.deltaTime - b.deltaTime);
         }
 
         return NextResponse.json(record);
@@ -55,14 +41,6 @@ export async function PATCH(
 ) {
     try {
         const { id } = await params;
-        const recordId = parseInt(id);
-
-        if (isNaN(recordId)) {
-            return NextResponse.json(
-                { error: "Invalid record ID" },
-                { status: 400 },
-            );
-        }
 
         const body = await request.json();
         const { title } = body;
@@ -74,22 +52,20 @@ export async function PATCH(
             );
         }
 
-        const updatedRecord = await db.lectureRecord.update({
-            where: { id: recordId },
-            data: {
-                title: title.trim().slice(0, 255),
-            },
+        const updatedRecord = await updateLectureRecord(id, {
+            title: title.trim().slice(0, 255),
         });
 
-        return NextResponse.json(updatedRecord);
-    } catch (error) {
-        console.error("Error updating record:", error);
-        if ((error as any).code === "P2025") {
+        if (!updatedRecord) {
             return NextResponse.json(
                 { error: "Record not found" },
                 { status: 404 },
             );
         }
+
+        return NextResponse.json(updatedRecord);
+    } catch (error) {
+        console.error("Error updating record:", error);
         return NextResponse.json(
             { error: "Internal Server Error" },
             { status: 500 },
@@ -103,20 +79,8 @@ export async function DELETE(
 ) {
     try {
         const { id } = await params;
-        const recordId = parseInt(id);
 
-        if (isNaN(recordId)) {
-            return NextResponse.json(
-                { error: "Invalid record ID" },
-                { status: 400 },
-            );
-        }
-
-        // Fetch record first to get audio path
-        const record = await db.lectureRecord.findUnique({
-            where: { id: recordId },
-            select: { audioPath: true },
-        });
+        const record = await getLectureRecordById(id);
 
         if (!record) {
              return NextResponse.json(
@@ -128,28 +92,28 @@ export async function DELETE(
         // Delete audio file if it exists
         if (record.audioPath) {
             try {
-                const fullPath = path.join(process.cwd(), "public", record.audioPath);
+                // audioPath is like /api/lecture-records/audio/filename.webm
+                const fileName = record.audioPath.split('/').pop();
+                const fullPath = path.join(process.cwd(), "data", "lecture-records", "audio", fileName!);
                 await fs.unlink(fullPath);
                 console.log(`Deleted audio file: ${fullPath}`);
             } catch (err) {
-                console.error(`Failed to delete audio file for record ${recordId}:`, err);
+                console.error(`Failed to delete audio file for record ${id}:`, err);
                 // Continue with record deletion even if file deletion fails
             }
         }
 
-        await db.lectureRecord.delete({
-            where: { id: recordId },
-        });
-
-        return NextResponse.json({ success: true });
-    } catch (error) {
-        console.error("Error deleting record:", error);
-        if ((error as any).code === "P2025") {
+        const deleted = await deleteLectureRecord(id);
+        if (!deleted) {
             return NextResponse.json(
                 { error: "Record not found" },
                 { status: 404 },
             );
         }
+
+        return NextResponse.json({ success: true });
+    } catch (error) {
+        console.error("Error deleting record:", error);
         return NextResponse.json(
             { error: "Internal Server Error" },
             { status: 500 },

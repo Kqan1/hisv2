@@ -6,15 +6,17 @@ import Matrix from "@/components/ui/matrix";
 import { Button } from "@/components/ui/button";
 import { useESP32 } from "@/hooks/useESP32";
 import { cn } from "@/lib/utils";
-import { PlayIcon, SquareIcon, MessageSquareIcon, SendIcon, ChevronDownIcon, ChevronUpIcon, Loader2Icon } from "lucide-react";
+import { useModel } from "@/components/providers/model-context";
+import { PlayIcon, SquareIcon, MessageSquareIcon, SendIcon, ChevronDownIcon, ChevronUpIcon, Loader2Icon, TriangleAlertIcon } from "lucide-react";
+import { toast } from "sonner";
 
 type FrameWithMatrix = {
-    id: number;
-    lectureRecordId: number;
+    id: string;
+    lectureRecordId: string;
     deltaTime: number;
     createdAt: string;
     pixelMatrix: {
-        id: number;
+        id: string;
         matrix: any;
         createdAt: string;
         updatedAt: string;
@@ -22,8 +24,9 @@ type FrameWithMatrix = {
 };
 
 type LectureRecordWithFrames = {
-    id: number;
+    id: string;
     title: string;
+    deviceModelId: string;
     audioPath: string | null;
     audioData: any; // Buffer or base64 string
     createdAt: string;
@@ -45,6 +48,7 @@ export default function LectureRecordDetailClient({
     const { id } = use(params);
     const router = useRouter();
     const { setArray } = useESP32();
+    const { activeModel, models } = useModel();
     const [record, setRecord] = useState<LectureRecordWithFrames | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -107,8 +111,7 @@ export default function LectureRecordDetailClient({
     };
 
     useEffect(() => {
-        const recordId = parseInt(id, 10);
-        if (Number.isNaN(recordId)) {
+        if (!id) {
             setError("Invalid record ID");
             setLoading(false);
             return;
@@ -133,8 +136,11 @@ export default function LectureRecordDetailClient({
                 }
             })
             .catch((err) => {
-                if (!cancelled)
-                    setError(err.message ?? "Failed to load record");
+                if (!cancelled) {
+                    const msg = err.message ?? "Failed to load record";
+                    setError(msg);
+                    toast.error(msg);
+                }
             })
             .finally(() => {
                 if (!cancelled) setLoading(false);
@@ -174,7 +180,7 @@ export default function LectureRecordDetailClient({
                     bytes = new Uint8Array(record.audioData);
                 }
 
-                const blob = new Blob([bytes], { type: "audio/webm" });
+                const blob = new Blob([bytes as BlobPart], { type: "audio/webm" });
                 const url = URL.createObjectURL(blob);
                 setAudioUrl(url);
                 return () => URL.revokeObjectURL(url);
@@ -324,7 +330,9 @@ export default function LectureRecordDetailClient({
             });
             const data = await res.json();
             if (!res.ok) {
-                setError(data.error ?? "Failed to update record");
+                const msg = data.error ?? "Failed to update record";
+                setError(msg);
+                toast.error(msg);
                 return;
             }
             // Update local state while keeping frames
@@ -334,6 +342,7 @@ export default function LectureRecordDetailClient({
             setEditing(false);
         } catch {
             setError("Failed to update record");
+            toast.error("Failed to update record");
         } finally {
             setSaving(false);
         }
@@ -364,13 +373,39 @@ export default function LectureRecordDetailClient({
         );
     }
 
+    const isModelMismatch = record?.deviceModelId !== activeModel.id;
+    const recordModel = models.find(m => m.id === record?.deviceModelId) || activeModel;
+
+    if (isModelMismatch) {
+        return (
+            <div className="flex flex-col items-center justify-center min-h-[60vh] text-center space-y-6">
+                <div className="bg-destructive/10 p-6 rounded-full border border-destructive/20">
+                    <TriangleAlertIcon className="size-16 text-destructive" />
+                </div>
+                <div className="space-y-2 max-w-md">
+                    <h2 className="text-3xl font-bold tracking-tight text-destructive">Model Mismatch</h2>
+                    <p className="text-muted-foreground text-lg">
+                        This recording was created with <strong>{recordModel.name}</strong> model. 
+                        To play it, please change your device model in Settings.
+                    </p>
+                </div>
+                <Button
+                    size="lg"
+                    onClick={() => router.push("/lecture-records")}
+                >
+                    Back to records
+                </Button>
+            </div>
+        );
+    }
+
     const currentFrame =
-        record.frames && record.frames.length > 0
+        record.frames.length > 0
             ? record.frames[currentFrameIndex]
             : null;
     const matrixData =
         (currentFrame?.pixelMatrix?.matrix as number[][]) ??
-        Array(10).fill(Array(15).fill(0));
+        Array(recordModel.rows).fill(Array(recordModel.cols).fill(0));
 
     return (
         <div className="space-y-4">
@@ -419,6 +454,8 @@ export default function LectureRecordDetailClient({
                     <Matrix
                         key="view"
                         initialData={matrixData}
+                        rows={recordModel.rows}
+                        cols={recordModel.cols}
                         onChange={() => {}}
                         editable={false}
                     />

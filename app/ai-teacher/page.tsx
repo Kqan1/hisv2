@@ -8,6 +8,8 @@ import { BrainCircuit, Send, Loader2 } from 'lucide-react';
 import Matrix from '@/components/ui/matrix'; 
 import { cn } from '@/lib/utils'; 
 import { useESP32 } from '@/hooks/useESP32';
+import { useModel } from '@/components/providers/model-context';
+import { toast } from 'sonner';
 
 interface Message {
     role: 'user' | 'assistant';
@@ -23,6 +25,7 @@ export default function AITeacher() {
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const { setArray, enableLoop } = useESP32();
+    const { activeModel } = useModel();
 
     const handleSubmit = async (e?: React.FormEvent) => {
         e?.preventDefault();
@@ -41,7 +44,7 @@ export default function AITeacher() {
             const response = await fetch('/api/teacher', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ messages: [...messages, userMessage] }),
+                body: JSON.stringify({ messages: [...messages, userMessage], rows: activeModel.rows, cols: activeModel.cols }),
             });
 
             if (!response.ok) throw new Error('Failed to send message');
@@ -73,6 +76,7 @@ export default function AITeacher() {
             setMessages((prev) => [...prev, assistantMessage]);
         } catch (error) {
             console.error(error);
+            toast.error('Failed to get response from AI Teacher');
         } finally {
             setIsLoading(false);
         }
@@ -128,8 +132,8 @@ export default function AITeacher() {
                                             <div className="min-w-[200px] max-w-full pointer-events-none">
                                                 <Matrix 
                                                     initialData={msg.matrix}
-                                                    rows={10} 
-                                                    cols={15}
+                                                    rows={activeModel.rows} 
+                                                    cols={activeModel.cols}
                                                     editable={false}
                                                     disabled={true}
                                                 />

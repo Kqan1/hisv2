@@ -1,6 +1,7 @@
 import { GoogleGenAI } from "@google/genai";
 import { NextRequest, NextResponse } from "next/server";
-import db from "@/lib/db";
+import { ESP32_CONFIG } from "@/lib/config";
+import { getLectureRecordById } from "@/lib/lecture-records-store";
 
 export async function POST(
     request: NextRequest,
@@ -16,17 +17,11 @@ export async function POST(
 
     try {
         const { id } = await params;
-        const recordId = parseInt(id);
-
-        if (isNaN(recordId)) {
-            return NextResponse.json(
-                { error: "Invalid record ID" },
-                { status: 400 },
-            );
-        }
 
         const body = await request.json();
-        const { question } = body;
+        const { question, rows: clientRows, cols: clientCols } = body;
+        const rows = clientRows || ESP32_CONFIG.rows;
+        const cols = clientCols || ESP32_CONFIG.cols;
 
         if (!question || typeof question !== "string" || question.trim().length === 0) {
             return NextResponse.json(
@@ -36,21 +31,18 @@ export async function POST(
         }
 
         // Fetch the lecture record with all frames and matrices
-        const record = await db.lectureRecord.findUnique({
-            where: { id: recordId },
-            include: {
-                frames: {
-                    include: { pixelMatrix: true },
-                    orderBy: { deltaTime: "asc" },
-                },
-            },
-        });
+        const record = await getLectureRecordById(id);
 
         if (!record) {
             return NextResponse.json(
                 { error: "Record not found" },
                 { status: 404 },
             );
+        }
+        
+        // Ensure frames are sorted
+        if (record.frames) {
+            record.frames.sort((a, b) => a.deltaTime - b.deltaTime);
         }
 
         // Build a concise context summary of the record for the AI
@@ -85,12 +77,12 @@ export async function POST(
             return `Frame ${idx + 1} (at ${frame.deltaTime}ms):\n${JSON.stringify(matrix)}`;
         });
 
-        const systemPrompt = `You are an AI assistant that answers questions about a lecture recording made on a 10x15 tactile pixel matrix display (10 rows, 15 columns). Each cell is either 0 (off) or 1 (on).
+        const systemPrompt = `You are an AI assistant that answers questions about a lecture recording made on a ${rows}x${cols} tactile pixel matrix display (${rows} rows, ${cols} columns). Each cell is either 0 (off) or 1 (on).
 
 Here is the context of the recording:
 
 **Title:** ${record.title}
-**Created:** ${record.createdAt.toISOString()}
+**Created:** ${new Date(record.createdAt).toISOString()}
 **Total Frames:** ${record.frames.length}
 **Total Duration:** ${totalDuration}ms (${(totalDuration / 1000).toFixed(1)}s)
 

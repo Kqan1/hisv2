@@ -3,8 +3,9 @@
 import { useState } from 'react'
 import { TrashIcon, XIcon, PlusIcon } from 'lucide-react'
 import type { Prisma } from '@prisma/client'
-import Matrix from '@/components/ui/matrix'
 import { cn } from '@/lib/utils'
+import { Badge } from '@/components/ui/badge'
+import { useModel } from '@/components/providers/model-context'
 import { buttonVariants } from '@/components/ui/button'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
@@ -47,7 +48,7 @@ export function NotesList({ notes, deleteMode }: NotesListProps) {
     }
 
     return (
-        <div className="grid grid-cols-2 grid-rows-auto gap-2">
+        <div className="flex flex-col gap-2">
             {notes.map((note) => (
                 <NoteCard
                     key={note.id}
@@ -97,13 +98,15 @@ interface NoteCardProps {
 
 function NoteCard({ noteData, deleteMode, isDeleting, onDelete }: NoteCardProps) {
     const [isHovered, setIsHovered] = useState(false)
+    const { models, activeModel } = useModel()
+    const recordModel = models.find(m => m.id === (noteData as any).deviceModelId) || activeModel
 
     if (deleteMode) {
         return (
             <div
                 className={cn(
                     buttonVariants({ variant: 'outline' }),
-                    'size-full aspect-square flex flex-col items-stretch p-3 pb-28! text-left relative cursor-pointer',
+                    'size-full flex flex-col items-stretch p-3 text-left relative cursor-pointer',
                     isDeleting && 'opacity-50'
                 )}
                 onMouseEnter={() => setIsHovered(true)}
@@ -117,12 +120,16 @@ function NoteCard({ noteData, deleteMode, isDeleting, onDelete }: NoteCardProps)
                         </div>
                     </div>
                 )}
-                <h3 className="text-lg font-bold leading-none">{noteData.title}</h3>
-                <small className="text-sm text-muted-foreground">
-                    created at: {formatNoteDate(noteData.pixelMatrix?.createdAt ?? noteData.createdAt)}
-                </small>
-                <div className="flex-1 min-h-0 mt-2">
-                    <Matrix editable={false} initialData={(noteData.pixelMatrix?.matrix as number[][]) ?? []} />
+                <div className="flex justify-between items-start w-full gap-2">
+                    <div className="flex flex-col gap-1.5">
+                        <h3 className="text-lg font-bold leading-none">{noteData.title}</h3>
+                        <small className="text-sm text-muted-foreground">
+                            created at: {formatNoteDate(noteData.pixelMatrix?.createdAt ?? noteData.createdAt)}
+                        </small>
+                    </div>
+                    <Badge variant="secondary" className="text-[10px] uppercase font-mono shrink-0">
+                        {recordModel.name}
+                    </Badge>
                 </div>
             </div>
         )
@@ -133,15 +140,19 @@ function NoteCard({ noteData, deleteMode, isDeleting, onDelete }: NoteCardProps)
             href={`/notes/${noteData.id}`}
             className={cn(
                 buttonVariants({ variant: 'outline' }),
-                'size-full aspect-square flex flex-col items-stretch p-3 pb-28! text-left'
+                'size-full flex flex-col items-stretch p-3 text-left'
             )}
         >
-            <h3 className="text-lg font-bold leading-none">{noteData.title}</h3>
-            <small className="text-sm text-muted-foreground">
-                created at: {formatNoteDate(noteData.pixelMatrix?.createdAt ?? noteData.createdAt)}
-            </small>
-            <div className="flex-1 min-h-0 mt-2">
-                <Matrix editable={false} initialData={(noteData.pixelMatrix?.matrix as number[][]) ?? []} />
+            <div className="flex justify-between items-start w-full gap-2">
+                <div className="flex flex-col gap-1.5">
+                    <h3 className="text-lg font-bold leading-none">{noteData.title}</h3>
+                    <small className="text-sm text-muted-foreground">
+                        created at: {formatNoteDate(noteData.pixelMatrix?.createdAt ?? noteData.createdAt)}
+                    </small>
+                </div>
+                <Badge variant="secondary" className="text-[10px] uppercase font-mono shrink-0">
+                    {recordModel.name}
+                </Badge>
             </div>
         </Link>
     )

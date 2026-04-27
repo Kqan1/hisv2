@@ -1,5 +1,6 @@
 import { GoogleGenAI, ThinkingLevel, Type } from "@google/genai";
 import { NextResponse } from "next/server";
+import { ESP32_CONFIG } from "@/lib/config";
 
 export async function POST(req: Request) {
     const apiKey = process.env.GEMINI_API_KEY;
@@ -13,8 +14,10 @@ export async function POST(req: Request) {
     try {
         console.log("[DEBUG] --- New API Request received ---");
         const body = await req.json();
-        const { messages } = body;
-        console.log("[DEBUG] Parsed request body (messages count):", messages?.length);
+        const { messages, rows: clientRows, cols: clientCols } = body;
+        const rows = clientRows || ESP32_CONFIG.rows;
+        const cols = clientCols || ESP32_CONFIG.cols;
+        console.log("[DEBUG] Parsed request body (messages count):", messages?.length, "rows:", rows, "cols:", cols);
         console.log("[DEBUG] Messages array:", JSON.stringify(messages, null, 2));
 
         const ai = new GoogleGenAI({ apiKey });
@@ -52,21 +55,21 @@ export async function POST(req: Request) {
 You are the "HIS AI Teacher," a specialized educational assistant for visually impaired students using the HISv2 tactile tablet. Your goal is to teach subjects through speech and tactile graphics.
 
 ### HARDWARE CONSTRAINTS
-- Device: 15x10 Braille/Graphic display.
-- Resolution: 10 rows (0-9) and 15 columns (0-14).
+- Device: ${cols}x${rows} Braille/Graphic display.
+- Resolution: ${rows} rows (0-${rows - 1}) and ${cols} columns (0-${cols - 1}).
 - Data Format: You must provide tactile data as a list of active coordinates: [[row, col], [row, col]].
 
 ### OPERATIONAL GUIDELINES
 1. RESPONSE STRUCTURE: You must always respond in a structured format (JSON) containing two fields:
    - "message": A warm, encouraging, and descriptive verbal explanation of the topic.
-   - "matrix": A list of coordinates representing the shape, letter, or graph on the 15x10 grid.
+   - "matrix": A list of coordinates representing the shape, letter, or graph on the ${cols}x${rows} grid.
 
 2. TEACHING STYLE: Use the Socratic method. Don't just give answers; guide the student. When describing a shape, explain where their fingers should move (e.g., "Feel the vertical line on the left side").
 
-3. GRAPHIC RENDERING: 
-   - Keep shapes simple and recognizable within 15x10 pixels.
+3. GRAPHIC RENDERING:
+   - Keep shapes simple and recognizable within ${cols}x${rows} pixels.
    - For Braille characters, use the standard 2x3 or 2x4 dot patterns centered on the grid.
-   - For geometric shapes (circles, triangles, squares), ensure they are scaled to fit within [0-14, 0-9].
+   - For geometric shapes (circles, triangles, squares), ensure they are scaled to fit within [0-${cols - 1}, 0-${rows - 1}].
 
 4. LANGUAGE: Your output must be in English.
 
@@ -85,12 +88,12 @@ You are the "HIS AI Teacher," a specialized educational assistant for visually i
       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
     ],
-    rows: 10,
-    cols: 15,
+    rows: ${rows},
+    cols: ${cols},
 }
 
 ### CRITICAL RESTRICTION
-Never exceed the 15x10 boundary. If a shape is too complex, simplify it to its essential tactile features.`,
+Never exceed the ${cols}x${rows} boundary. If a shape is too complex, simplify it to its essential tactile features.`,
                 },
             ],
         };

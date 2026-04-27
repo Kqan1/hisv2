@@ -7,19 +7,23 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { SquareIcon, XIcon } from "lucide-react";
 import { useESP32 } from "@/hooks/useESP32";
+import { useModel } from "@/components/providers/model-context";
+import { toast } from "sonner";
 
 type FrameData = {
     matrix: number[][];
     deltaTime: number;
 };
 
-const EMPTY_MATRIX = Array(10)
-    .fill(0)
-    .map(() => Array(15).fill(0));
-
 export function NewLectureRecordForm() {
     const router = useRouter();
     const { setArray } = useESP32();
+    const { activeModel } = useModel();
+
+    const EMPTY_MATRIX = Array(activeModel.rows)
+        .fill(0)
+        .map(() => Array(activeModel.cols).fill(0));
+
     const [title, setTitle] = useState("");
     const [currentMatrix, setCurrentMatrix] =
         useState<number[][]>(EMPTY_MATRIX);
@@ -49,6 +53,7 @@ export function NewLectureRecordForm() {
             .catch(err => {
                 console.error("Error accessing microphone:", err);
                 setError("Microphone access denied or not available.");
+                toast.error("Microphone access denied or not available.");
             });
     }, []);
 
@@ -176,6 +181,7 @@ export function NewLectureRecordForm() {
         setError(null);
         if (!title.trim()) {
             setError("Title is required");
+            toast.error("Title is required");
             return;
         }
         
@@ -201,7 +207,8 @@ export function NewLectureRecordForm() {
             const body = {
                 title: title.trim(),
                 frames: framesToSave,
-                audioData: finalAudioData // Use the captured data
+                audioData: finalAudioData, // Use the captured data
+                deviceModelId: activeModel.id,
             };
             
             console.log("Submitting record with audio length:", finalAudioData?.length);
@@ -213,13 +220,16 @@ export function NewLectureRecordForm() {
             });
             const data = await res.json();
             if (!res.ok) {
-                setError(data.error ?? "Failed to create record");
+                const msg = data.error ?? "Failed to create record";
+                setError(msg);
+                toast.error(msg);
                 return;
             }
             router.push(`/lecture-records/${data.id}`);
         } catch (err) {
              console.error(err);
             setError("Failed to create record");
+            toast.error("Failed to create record");
         } finally {
             setIsSubmitting(false);
         }
