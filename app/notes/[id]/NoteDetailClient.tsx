@@ -8,20 +8,22 @@ import { useESP32 } from '@/hooks/useESP32'
 import { cn } from '@/lib/utils'
 import { useModel } from '@/components/providers/model-context'
 import { toast } from 'sonner'
-import { TriangleAlertIcon } from 'lucide-react'
+import { TriangleAlertIcon, ChevronLeft, ChevronRight, Plus, Trash2 } from 'lucide-react'
+
+type NotePage = {
+    id: string
+    matrix: number[][]
+    createdAt: string
+    updatedAt: string
+}
 
 type NoteWithMatrix = {
-    id: number
+    id: string
     title: string
     deviceModelId: string
     createdAt: string
     updatedAt: string
-    pixelMatrix: {
-        id: number
-        matrix: number[][]
-        createdAt: string
-        updatedAt: string
-    } | null
+    pages: NotePage[]
 }
 
 function formatNoteDate(createdAt: Date | string): string {
@@ -39,16 +41,11 @@ export function NoteDetailClient({ params }: { params: Promise<{ id: string }> }
     const [error, setError] = useState<string | null>(null)
     const [editing, setEditing] = useState(false)
     const [title, setTitle] = useState('')
-    const [matrix, setMatrix] = useState<number[][]>([])
+    const [pages, setPages] = useState<NotePage[]>([])
+    const [activePageIndex, setActivePageIndex] = useState(0)
     const [saving, setSaving] = useState(false)
 
     useEffect(() => {
-        const noteId = parseInt(id, 10)
-        if (Number.isNaN(noteId)) {
-            setError('Invalid note ID')
-            setLoading(false)
-            return
-        }
         let cancelled = false
         setLoading(true)
         setError(null)
@@ -61,8 +58,8 @@ export function NoteDetailClient({ params }: { params: Promise<{ id: string }> }
                 if (!cancelled) {
                     setNote(data)
                     setTitle(data.title)
-                    const m = data.pixelMatrix?.matrix
-                    setMatrix(Array.isArray(m) ? m : [])
+                    setPages(data.pages || [])
+                    setActivePageIndex(0)
                 }
             })
             .catch((err) => {
@@ -80,13 +77,14 @@ export function NoteDetailClient({ params }: { params: Promise<{ id: string }> }
         }
     }, [id])
 
-    // Send matrix to ESP32 when note is loaded
+    // Send active matrix to ESP32
     useEffect(() => {
-        if (!note?.pixelMatrix?.matrix) return
-        const m = note.pixelMatrix.matrix as number[][]
+        const activePage = pages[activePageIndex]
+        if (!activePage?.matrix) return
+        const m = activePage.matrix
         if (!Array.isArray(m) || m.length !== activeModel.rows || (m[0] && m[0].length !== activeModel.cols)) return
         setArray(m, { cycle: true })
-    }, [note?.id, setArray])
+    }, [activePageIndex, pages, setArray, activeModel])
 
     const handleSave = async () => {
         if (!note) return
@@ -96,7 +94,7 @@ export function NoteDetailClient({ params }: { params: Promise<{ id: string }> }
             const res = await fetch(`/api/notes/${note.id}`, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ title: title.trim(), matrix }),
+                body: JSON.stringify({ title: title.trim(), pages }),
             })
             const data = await res.json()
             if (!res.ok) {
@@ -106,13 +104,48 @@ export function NoteDetailClient({ params }: { params: Promise<{ id: string }> }
                 return
             }
             setNote(data)
+            setPages(data.pages)
             setEditing(false)
+            toast.success('Note saved successfully')
         } catch {
             setError('Failed to update note')
             toast.error('Failed to update note')
         } finally {
             setSaving(false)
         }
+    }
+
+    const addPage = () => {
+        const newPage: NotePage = {
+            id: `temp-${Date.now()}`,
+            matrix: Array(activeModel.rows).fill(0).map(() => Array(activeModel.cols).fill(0)),
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+        }
+        setPages([...pages, newPage])
+        setActivePageIndex(pages.length)
+    }
+
+    const deletePage = (index: number) => {
+        if (pages.length <= 1) {
+            toast.error("At least one page is required")
+            return
+        }
+        const newPages = pages.filter((_, i) => i !== index)
+        setPages(newPages)
+        if (activePageIndex >= newPages.length) {
+            setActivePageIndex(newPages.length - 1)
+        }
+    }
+
+    const updateActiveMatrix = (newMatrix: number[][]) => {
+        const newPages = [...pages]
+        newPages[activePageIndex] = {
+            ...newPages[activePageIndex],
+            matrix: newMatrix,
+            updatedAt: new Date().toISOString()
+        }
+        setPages(newPages)
     }
 
     if (loading) {
@@ -161,72 +194,144 @@ export function NoteDetailClient({ params }: { params: Promise<{ id: string }> }
         );
     }
 
-    const matrixData = (note.pixelMatrix?.matrix as number[][]) ?? matrix
-
     return (
-        <div className="space-y-4">
-            <div className="space-y-2">
-                {editing ? (
-                    <input
-                        value={title}
-                        onChange={(e) => setTitle(e.target.value)}
-                        placeholder="Title"
-                        maxLength={255}
-                        className={cn(
-                            'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-semibold',
-                            'ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2'
-                        )}
-                    />
-                ) : (
-                    <h2 className="text-2xl font-bold">{note.title}</h2>
-                )}
-                <small className="text-sm text-muted-foreground">
-                    created at: {formatNoteDate(note.pixelMatrix?.createdAt ?? note.createdAt)}
-                </small>
-            </div>
+        <div className="space-y-6">
+            <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+                <div className="space-y-2 flex-1">
+                    {editing ? (
+                        <input
+                            value={title}
+                            onChange={(e) => setTitle(e.target.value)}
+                            placeholder="Title"
+                            maxLength={255}
+                            className={cn(
+                                'flex h-12 w-full rounded-md border border-input bg-background px-4 py-2 text-xl font-bold',
+                                'ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2'
+                            )}
+                        />
+                    ) : (
+                        <h2 className="text-3xl font-bold tracking-tight">{note.title}</h2>
+                    )}
+                    <div className="flex items-center gap-2">
+                        <small className="text-sm text-muted-foreground font-medium">
+                            Created: {formatNoteDate(note.createdAt)}
+                        </small>
+                        <span className="text-muted-foreground/30">•</span>
+                        <small className="text-sm text-muted-foreground font-medium">
+                            {pages.length} Pages
+                        </small>
+                    </div>
+                </div>
 
-            <div className="space-y-2">
-                <div className="border-dashed border rounded-lg p-2 min-h-[200px]">
-                    <Matrix
-                        key={editing ? 'edit' : 'view'}
-                        initialData={editing ? matrix : matrixData}
-                        rows={recordModel.rows}
-                        cols={recordModel.cols}
-                        onChange={setMatrix}
-                        editable={editing}
-                    />
+                <div className="flex gap-2 shrink-0">
+                    {editing ? (
+                        <>
+                            <Button size="lg" onClick={handleSave} disabled={saving}>
+                                {saving ? 'Saving…' : 'Save Changes'}
+                            </Button>
+                            <Button
+                                size="lg"
+                                variant="outline"
+                                onClick={() => {
+                                    setEditing(false)
+                                    setTitle(note.title)
+                                    setPages(note.pages || [])
+                                    setActivePageIndex(0)
+                                }}
+                                disabled={saving}
+                            >
+                                Cancel
+                            </Button>
+                        </>
+                    ) : (
+                        <Button size="lg" variant="outline" onClick={() => setEditing(true)}>
+                            Edit Note
+                        </Button>
+                    )}
+                    <Button size="lg" variant="ghost" onClick={() => router.push('/notes')}>
+                        Back
+                    </Button>
                 </div>
             </div>
 
-            {error && <p className="text-sm text-destructive">{error}</p>}
-
-            <div className="flex gap-2">
-                {editing ? (
-                    <>
-                        <Button onClick={handleSave} disabled={saving}>
-                            {saving ? 'Saving…' : 'Save'}
-                        </Button>
-                        <Button
-                            variant="outline"
-                            onClick={() => {
-                                setEditing(false)
-                                setTitle(note.title)
-                                setMatrix((note.pixelMatrix?.matrix as number[][]) ?? [])
-                            }}
-                            disabled={saving}
+            <div className="space-y-4">
+                <div className="flex items-center justify-between bg-muted/30 p-2 rounded-xl border border-border/50">
+                    <div className="flex items-center gap-2">
+                        <Button 
+                            variant="ghost" 
+                            size="icon-sm" 
+                            onClick={() => setActivePageIndex(prev => Math.max(0, prev - 1))}
+                            disabled={activePageIndex === 0}
                         >
-                            Cancel
+                            <ChevronLeft className="size-5" />
                         </Button>
-                    </>
-                ) : (
-                    <Button variant="outline" onClick={() => setEditing(true)}>
-                        Edit
-                    </Button>
-                )}
-                <Button variant="ghost" onClick={() => router.push('/notes')}>
-                    Back to notes
-                </Button>
+                        <div className="flex items-center gap-1.5 px-2 overflow-x-auto max-w-[200px] md:max-w-md no-scrollbar">
+                            {pages.map((_, i) => (
+                                <button
+                                    key={i}
+                                    onClick={() => setActivePageIndex(i)}
+                                    className={cn(
+                                        "size-8 rounded-lg text-xs font-bold transition-all flex items-center justify-center shrink-0",
+                                        activePageIndex === i 
+                                            ? "bg-primary text-primary-foreground shadow-lg scale-110" 
+                                            : "bg-background text-muted-foreground hover:bg-muted"
+                                    )}
+                                >
+                                    {i + 1}
+                                </button>
+                            ))}
+                        </div>
+                        <Button 
+                            variant="ghost" 
+                            size="icon-sm" 
+                            onClick={() => setActivePageIndex(prev => Math.min(pages.length - 1, prev + 1))}
+                            disabled={activePageIndex === pages.length - 1}
+                        >
+                            <ChevronRight className="size-5" />
+                        </Button>
+                    </div>
+
+                    {editing && (
+                        <div className="flex items-center gap-2">
+                            <Button 
+                                variant="secondary" 
+                                size="sm" 
+                                className="h-8 px-3 rounded-lg font-bold"
+                                onClick={addPage}
+                            >
+                                <Plus className="size-4 mr-1.5" /> New Page
+                            </Button>
+                            <Button 
+                                variant="destructive" 
+                                size="icon-sm" 
+                                className="size-8 rounded-lg"
+                                onClick={() => deletePage(activePageIndex)}
+                                disabled={pages.length <= 1}
+                            >
+                                <Trash2 className="size-4" />
+                            </Button>
+                        </div>
+                    )}
+                </div>
+
+                <div className="relative group">
+                    <div className="absolute inset-0 bg-primary/5 rounded-2xl -m-2 -z-10 group-hover:bg-primary/10 transition-colors" />
+                    <div className="bg-background border rounded-2xl p-6 shadow-xl ring-1 ring-border/50">
+                        <div className="flex justify-center w-full max-w-2xl mx-auto">
+                            <Matrix
+                                key={`${editing}-${activePageIndex}`}
+                                initialData={pages[activePageIndex]?.matrix}
+                                rows={recordModel.rows}
+                                cols={recordModel.cols}
+                                onChange={updateActiveMatrix}
+                                editable={editing}
+                            />
+                        </div>
+                    </div>
+                </div>
             </div>
+
+            {error && <p className="text-sm text-destructive font-medium bg-destructive/10 p-3 rounded-lg border border-destructive/20">{error}</p>}
         </div>
     )
 }

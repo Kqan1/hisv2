@@ -4,9 +4,13 @@ import path from "path";
 import { v4 as uuidv4 } from "uuid";
 import { getLectureRecords, createLectureRecord } from "@/lib/lecture-records-store";
 
-export async function GET() {
-    const data = await getLectureRecords();
-    return NextResponse.json({ data }, { status: 200 });
+export async function GET(request: NextRequest) {
+    const searchParams = request.nextUrl.searchParams;
+    const page = parseInt(searchParams.get('page') || '1');
+    const pageSize = parseInt(searchParams.get('pageSize') || '10');
+
+    const result = await getLectureRecords(page, pageSize);
+    return NextResponse.json(result, { status: 200 });
 }
 
 export async function POST(request: NextRequest) {

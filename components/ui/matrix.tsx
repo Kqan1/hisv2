@@ -28,7 +28,7 @@ export default function Matrix({
     const cols = colsProp ?? activeModel.cols;
     const [grid, setGrid] = useState<number[][]>(
         () =>
-            initialData ||
+            (initialData && initialData.length > 0) ? initialData :
             Array(rows)
                 .fill(0)
                 .map(() => Array(cols).fill(0)),
@@ -43,7 +43,9 @@ export default function Matrix({
     }, [grid]);
 
     useEffect(() => {
-        if (initialData) setGrid(initialData);
+        if (initialData && initialData.length > 0) {
+            setGrid(initialData);
+        }
     }, [initialData]);
 
     const drawLine = (
@@ -110,7 +112,7 @@ export default function Matrix({
 
     return (
         <div
-            className="flex flex-col items-center gap-2"
+            className="flex flex-col items-center gap-2 w-full"
             onMouseUp={() => {
                 setIsDrawing(false);
                 lastPos.current = null;
@@ -151,7 +153,7 @@ export default function Matrix({
             )}
 
             <div
-                className="grid gap-px bg-zinc-200 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-800 select-none touch-none size-full"
+                className="grid gap-px bg-zinc-200 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-800 select-none touch-none w-full"
                 style={{
                     gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
                 }}
@@ -160,7 +162,7 @@ export default function Matrix({
                     row.map((cell, x) => (
                         <div
                             key={`${x}-${y}`}
-                            className={`aspect-square size-full ${cell === 1 ? "bg-black dark:bg-zinc-200" : "bg-white dark:bg-black"} transition-colors duration-75`}
+                            className={`aspect-square w-full ${cell === 1 ? "bg-black dark:bg-zinc-200" : "bg-white dark:bg-black"} transition-colors duration-75`}
                             onMouseDown={() => {
                                 if (editable) {
                                     setIsDrawing(true);

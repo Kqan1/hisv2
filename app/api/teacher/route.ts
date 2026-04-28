@@ -1,6 +1,7 @@
 import { GoogleGenAI, ThinkingLevel, Type } from "@google/genai";
 import { NextResponse } from "next/server";
 import { ESP32_CONFIG } from "@/lib/config";
+import { updateChat, createChat, Message } from "@/lib/ai-teacher-store";
 
 export async function POST(req: Request) {
     const apiKey = process.env.GEMINI_API_KEY;
@@ -14,7 +15,7 @@ export async function POST(req: Request) {
     try {
         console.log("[DEBUG] --- New API Request received ---");
         const body = await req.json();
-        const { messages, rows: clientRows, cols: clientCols } = body;
+        const { messages, rows: clientRows, cols: clientCols, chatId, deviceModelId } = body;
         const rows = clientRows || ESP32_CONFIG.rows;
         const cols = clientCols || ESP32_CONFIG.cols;
         console.log("[DEBUG] Parsed request body (messages count):", messages?.length, "rows:", rows, "cols:", cols);
@@ -88,8 +89,8 @@ You are the "HIS AI Teacher," a specialized educational assistant for visually i
       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
     ],
-    rows: ${rows},
-    cols: ${cols},
+    "rows": ${rows},
+    "cols": ${cols}
 }
 
 ### CRITICAL RESTRICTION
@@ -144,15 +145,56 @@ Never exceed the ${cols}x${rows} boundary. If a shape is too complex, simplify i
         
         try {
             console.log("[DEBUG] Attempting to parse response text as JSON...");
-            const jsonResponse = JSON.parse(responseText);
+            
+            // Clean markdown formatting if present
+            let cleanedText = responseText;
+            cleanedText = cleanedText.replace(/```json\n?/gi, '');
+            cleanedText = cleanedText.replace(/```\n?/gi, '');
+            cleanedText = cleanedText.trim();
+            
+            const jsonResponse = JSON.parse(cleanedText);
             console.log("[DEBUG] JSON Parse successful!", JSON.stringify(jsonResponse).substring(0, 50) + "...");
-            return NextResponse.json(jsonResponse);
+            
+            // Save chat history
+            const assistantMessage: Message = {
+                role: 'assistant',
+                content: jsonResponse.message || "Here is the tactile feedback.",
+                matrix: jsonResponse.matrix ? 
+                    Array.from({ length: jsonResponse.rows || rows }, (_, i) => 
+                        jsonResponse.matrix.slice(i * (jsonResponse.cols || cols), (i + 1) * (jsonResponse.cols || cols))
+                    ) : undefined,
+                rows: jsonResponse.rows || rows,
+                cols: jsonResponse.cols || cols,
+                timestamp: new Date().toISOString()
+            };
+            let finalChatId = chatId;
+            if (!finalChatId) {
+                const newChat = await createChat(`Chat ${new Date().toLocaleString()}`, [], deviceModelId);
+                finalChatId = newChat.id;
+            }
+            await updateChat(finalChatId, [...messages, assistantMessage]);
+            
+            return NextResponse.json({ ...jsonResponse, chatId: finalChatId });
         } catch (e) {
             console.error("[DEBUG] Failed to parse JSON!", "Raw text:", responseText, "Error:", e);
-            return NextResponse.json(
-                { message: responseText, matrix: [], rows: 0, cols: 0 },
-                { status: 200 }
-            );
+            
+            const fallbackResponse = { message: responseText, matrix: [], rows: 0, cols: 0 };
+            
+            // Save chat history for fallback
+            const assistantMessage: Message = {
+                role: 'assistant',
+                content: fallbackResponse.message,
+                timestamp: new Date().toISOString()
+            };
+
+            let finalChatId = chatId;
+            if (!finalChatId) {
+                const newChat = await createChat(`Chat ${new Date().toLocaleString()}`, []);
+                finalChatId = newChat.id;
+            }
+            await updateChat(finalChatId, [...messages, assistantMessage]);
+
+            return NextResponse.json({ ...fallbackResponse, chatId: finalChatId }, { status: 200 });
         }
 
     } catch (error) {

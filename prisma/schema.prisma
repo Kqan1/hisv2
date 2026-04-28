@@ -6,28 +6,3 @@ datasource db {
     provider = "postgresql"
 }
 
-model Note {
-    id        Int      @id @default(autoincrement())
-    title     String   @db.VarChar(255)
-    createdAt     DateTime @default(now()) @map("created_at")
-    updatedAt     DateTime @updatedAt @map("updated_at")
-    deviceModelId String   @default("amc-1") @map("device_model_id") @db.VarChar(50)
-
-    // PixelMatrix artık bu Note'a bağlı bir alt öğe
-    pixelMatrix PixelMatrix?
-
-    @@map("notes")
-}
-
-model PixelMatrix {
-    id        Int      @id @default(autoincrement())
-    matrix    Json
-    createdAt DateTime @default(now()) @map("created_at")
-    updatedAt DateTime @updatedAt @map("updated_at")
-
-    // EĞER NOTE SİLİNİRSE, BU MATRİX DE SİLİNİR
-    noteId Int?  @unique @map("note_id")
-    note   Note? @relation(fields: [noteId], references: [id], onDelete: Cascade)
-
-    @@map("pixel_matrices")
-}

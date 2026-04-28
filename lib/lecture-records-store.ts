@@ -40,10 +40,10 @@ async function ensureDir() {
     }
 }
 
-export async function getLectureRecords() {
+export async function getLectureRecords(page: number = 1, pageSize: number = 10) {
     await ensureDir();
     const files = await fs.readdir(STORE_DIR);
-    const records: any[] = [];
+    const allRecords: any[] = [];
 
     for (const file of files) {
         if (!file.endsWith('.json')) continue;
@@ -52,7 +52,7 @@ export async function getLectureRecords() {
             const data = await fs.readFile(filePath, 'utf-8');
             const record = JSON.parse(data) as LectureRecordWithFrames;
             
-            records.push({
+            allRecords.push({
                 id: record.id,
                 title: record.title,
                 deviceModelId: record.deviceModelId,
@@ -68,7 +68,22 @@ export async function getLectureRecords() {
     }
 
     // Sort by createdAt descending
-    return records.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    allRecords.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+    const total = allRecords.length;
+    const totalPages = Math.ceil(total / pageSize);
+    const offset = (page - 1) * pageSize;
+    const data = allRecords.slice(offset, offset + pageSize);
+
+    return {
+        data,
+        pagination: {
+            total,
+            page,
+            pageSize,
+            totalPages
+        }
+    };
 }
 
 export async function getLectureRecordById(id: string): Promise<LectureRecordWithFrames | null> {

@@ -1,64 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
-import db from '@/lib/db';
-import type { Prisma } from '@prisma/client';
-import { ESP32_CONFIG, DEVICE_MODELS } from '@/lib/config';
-
-const SORT_TO_ORDER: Record<string, { [key: string]: 'asc' | 'desc' }> = {
-    'title-asc': { title: 'asc' },
-    'title-desc': { title: 'desc' },
-    'createdAt-asc': { createdAt: 'asc' },
-    'createdAt-desc': { createdAt: 'desc' },
-    'updatedAt-asc': { updatedAt: 'asc' },
-    'updatedAt-desc': { updatedAt: 'desc' },
-};
-
-const DEFAULT_SORT = 'createdAt-desc';
-
-const QUERY_TIMEOUT_MS = 45_000;
-
-function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
-    return Promise.race([
-        promise,
-        new Promise<never>((_, reject) =>
-            setTimeout(() => reject(new Error('QUERY_TIMEOUT')), ms)
-        ),
-    ]);
-}
+import { getNotes, createNote } from '@/lib/notes-store';
+import { DEVICE_MODELS } from '@/lib/config';
 
 export async function GET(request: NextRequest) {
     try {
         const searchParams = request.nextUrl.searchParams;
-        const sort = searchParams.get('sort') || DEFAULT_SORT;
-        const orderBy = SORT_TO_ORDER[sort] ?? SORT_TO_ORDER[DEFAULT_SORT];
+        const page = parseInt(searchParams.get('page') || '1');
+        const pageSize = parseInt(searchParams.get('pageSize') || '10');
 
-        const notes: Prisma.NoteGetPayload<{ include: { pixelMatrix: true } }>[] = await withTimeout(
-            db.note.findMany({
-                include: { pixelMatrix: true },
-                orderBy,
-            }),
-            QUERY_TIMEOUT_MS
-        );
+        const result = await getNotes(page, pageSize);
 
-        return NextResponse.json(notes);
+        return NextResponse.json(result);
     } catch (error) {
-        const isTimeout =
-            error instanceof Error && error.message === 'QUERY_TIMEOUT';
-        const isPrismaTimeout =
-            error &&
-            typeof error === 'object' &&
-            'code' in error &&
-            (error as { code?: string }).code === 'ETIMEDOUT';
-
-        if (isTimeout || isPrismaTimeout) {
-            console.error('Notes fetch timeout:', error);
-            return NextResponse.json(
-                {
-                    error: 'Veritabanı zaman aşımına uğradı. Bağlantıyı kontrol edip tekrar deneyin.',
-                },
-                { status: 503 }
-            );
-        }
-
         console.error('Error fetching notes:', error);
         return NextResponse.json(
             {
@@ -75,7 +28,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
     try {
         const body = await request.json();
-        const { title, matrix, rows: clientRows, cols: clientCols, deviceModelId } = body as { title?: string; matrix?: number[][]; rows?: number; cols?: number; deviceModelId?: string };
+        const { title, matrices, matrix, deviceModelId } = body as { title?: string; matrices?: number[][][]; matrix?: number[][]; deviceModelId?: string };
 
         if (!title || typeof title !== 'string' || title.trim().length === 0) {
             return NextResponse.json(
@@ -85,26 +38,26 @@ export async function POST(request: NextRequest) {
         }
 
         const modelConfig = DEVICE_MODELS.find(m => m.id === deviceModelId) || DEVICE_MODELS[0];
-        const rows = clientRows || modelConfig.rows;
-        const cols = clientCols || modelConfig.cols;
-        const initialMatrix =
-            Array.isArray(matrix) && matrix.length === rows && matrix.every((row) => Array.isArray(row) && row.length === cols)
-                ? matrix
-                : Array(rows)
+        
+        // Support both single 'matrix' and multiple 'matrices'
+        let finalMatrices: number[][][] = [];
+        if (matrices && Array.isArray(matrices)) {
+            finalMatrices = matrices;
+        } else if (matrix) {
+            finalMatrices = [matrix];
+        } else {
+            // Default empty matrix
+            finalMatrices = [
+                Array(modelConfig.rows)
                     .fill(0)
-                    .map(() => Array(cols).fill(0));
+                    .map(() => Array(modelConfig.cols).fill(0))
+            ];
+        }
 
-        const note = await db.note.create({
-            data: {
-                title: title.trim().slice(0, 255),
-                deviceModelId: deviceModelId || "amc-1",
-                pixelMatrix: {
-                    create: {
-                        matrix: initialMatrix,
-                    },
-                },
-            },
-            include: { pixelMatrix: true },
+        const note = await createNote({
+            title: title.trim().slice(0, 255),
+            deviceModelId: deviceModelId || "amc-1",
+            matrices: finalMatrices,
         });
 
         return NextResponse.json(note);

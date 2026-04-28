@@ -1,30 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
-import db from '@/lib/db';
-import type { Prisma } from '@prisma/client';
-import { ESP32_CONFIG, DEVICE_MODELS } from '@/lib/config';
-
-type NoteWithMatrix = Prisma.NoteGetPayload<{ include: { pixelMatrix: true } }>;
-
-function parseId(params: Promise<{ id: string }>): Promise<number | null> {
-    return params.then(({ id }) => {
-        const n = parseInt(id, 10);
-        return Number.isNaN(n) ? null : n;
-    });
-}
+import { getNoteById, updateNote, deleteNote } from '@/lib/notes-store';
+import { DEVICE_MODELS } from '@/lib/config';
+import { v4 as uuidv4 } from 'uuid';
 
 export async function GET(
     _request: NextRequest,
     { params }: { params: Promise<{ id: string }> }
 ) {
     try {
-        const noteId = await parseId(params);
-        if (noteId == null) {
-            return NextResponse.json({ error: 'Invalid note ID' }, { status: 400 });
-        }
-        const note: NoteWithMatrix | null = await db.note.findUnique({
-            where: { id: noteId },
-            include: { pixelMatrix: true },
-        });
+        const { id } = await params;
+        const note = await getNoteById(id);
         if (!note) {
             return NextResponse.json({ error: 'Note not found' }, { status: 404 });
         }
@@ -48,44 +33,30 @@ export async function PATCH(
     { params }: { params: Promise<{ id: string }> }
 ) {
     try {
-        const noteId = await parseId(params);
-        if (noteId == null) {
-            return NextResponse.json({ error: 'Invalid note ID' }, { status: 400 });
-        }
-        const existing = await db.note.findUnique({
-            where: { id: noteId },
-            include: { pixelMatrix: true },
-        });
+        const { id } = await params;
+        const existing = await getNoteById(id);
         if (!existing) {
             return NextResponse.json({ error: 'Note not found' }, { status: 404 });
         }
         const body = await request.json().catch(() => ({}));
         const title = typeof body.title === 'string' ? body.title.trim().slice(0, 255) : undefined;
-        const matrix = body.matrix;
-        const modelConfig = DEVICE_MODELS.find((m) => m.id === existing.deviceModelId) || DEVICE_MODELS[0];
-        const rows = body.rows || modelConfig.rows;
-        const cols = body.cols || modelConfig.cols;
+        const pages = body.pages; // Expecting an array of NotePage or just matrices
+
+        const updates: any = {};
         if (title !== undefined) {
-            await db.note.update({
-                where: { id: noteId },
-                data: { title: title || existing.title },
-            });
+            updates.title = title || existing.title;
         }
-        if (matrix !== undefined) {
-            if (!isValidMatrix(matrix, rows, cols)) {
-                return NextResponse.json({ error: 'Invalid matrix' }, { status: 400 });
-            }
-            if (existing.pixelMatrix?.id) {
-                await db.pixelMatrix.update({
-                    where: { id: existing.pixelMatrix.id },
-                    data: { matrix },
-                });
-            }
+        if (pages !== undefined && Array.isArray(pages)) {
+            // Map to NotePage structure if needed
+            updates.pages = pages.map((p: any) => ({
+                id: p.id || uuidv4(),
+                matrix: p.matrix,
+                createdAt: p.createdAt || new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+            }));
         }
-        const updated: NoteWithMatrix = await db.note.findUnique({
-            where: { id: noteId },
-            include: { pixelMatrix: true },
-        }) as NoteWithMatrix;
+
+        const updated = await updateNote(id, updates);
         return NextResponse.json(updated);
     } catch (error) {
         console.error('Error updating note:', error);
@@ -99,44 +70,13 @@ export async function DELETE(
 ) {
     try {
         const { id } = await params;
-        const noteId = parseInt(id);
-
-        if (isNaN(noteId)) {
-            return NextResponse.json(
-                { error: 'Invalid note ID' },
-                { status: 400 }
-            );
+        const success = await deleteNote(id);
+        if (!success) {
+            return NextResponse.json({ error: 'Note not found' }, { status: 404 });
         }
-
-        // Check if note exists
-        const note = await db.note.findUnique({
-            where: { id: noteId },
-        });
-
-        if (!note) {
-            return NextResponse.json(
-                { error: 'Note not found' },
-                { status: 404 }
-            );
-        }
-
-        // Just delete the note. PixelMatrix will be deleted automatically due to CASCADE if configured,
-        // OR we need to delete it manually if it's strictly 1:1 and we want to be clean.
-        // The schema says:
-        // noteId Int? @unique @map("note_id")
-        // note Note? @relation(fields: [noteId], references: [id], onDelete: Cascade)
-        // So deleting Note deletes PixelMatrix.
-        
-        await db.note.delete({
-            where: { id: noteId },
-        });
-
         return NextResponse.json({ success: true });
     } catch (error) {
         console.error('Error deleting note:', error);
-        return NextResponse.json(
-            { error: 'Failed to delete note' },
-            { status: 500 }
-        );
+        return NextResponse.json({ error: 'Failed to delete note' }, { status: 500 });
     }
 }

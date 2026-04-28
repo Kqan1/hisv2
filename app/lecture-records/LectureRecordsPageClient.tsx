@@ -5,9 +5,9 @@ import { LectureRecordsSkeleton } from "@/app/lecture-records/LectureRecordsSkel
 import { Button } from "@/components/ui/button";
 import { SortButton } from "@/components/ui/sortButton";
 import { LectureRecordSummary } from "@/lib/lecture-records-store";
-import { Separator } from "@radix-ui/react-separator";
-import { Ghost } from "lucide-react";
-import { useSearchParams } from "next/navigation";
+import { Separator } from "@/components/ui/separator";
+import { Ghost, ChevronLeft, ChevronRight } from "lucide-react";
+import { useSearchParams, useRouter } from "next/navigation";
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -18,27 +18,30 @@ export function LectureRecordsPageClient() {
     const [isLoading, setIsLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const [records, setRecords] = useState<RecordsType[]>([])
+    const [pagination, setPagination] = useState({
+        total: 0,
+        page: 1,
+        pageSize: 10,
+        totalPages: 0
+    })
+    
     const searchParams = useSearchParams()
+    const router = useRouter()
+    const page = parseInt(searchParams.get('page') || '1')
 
     const fetchRecords = useCallback(async () => {
         setIsLoading(true)
         setError(null)
         try {
-            const sort = searchParams.get('sort') || 'createdAt-desc'
-            const response = await fetch(`/api/lecture-records?sort=${sort}`)
+            const response = await fetch(`/api/lecture-records?page=${page}`)
             const data = await response.json()
 
             if (!response.ok) {
-                const message =
-                    typeof data?.error === 'string'
-                        ? data.error
-                        : response.status === 503
-                            ? 'Veritabanı zaman aşımına uğradı.'
-                            : 'Notlar yüklenemedi.'
-                throw new Error(message)
-            };
+                throw new Error(data?.error || 'Kayıtlar yüklenemedi.')
+            }
 
             setRecords(data.data)
+            setPagination(data.pagination)
         } catch (err) {
             const msg = err instanceof Error ? err.message : 'Bir hata oluştu.'
             setError(msg)
@@ -47,7 +50,7 @@ export function LectureRecordsPageClient() {
         } finally {
             setIsLoading(false)
         }
-    }, [searchParams])
+    }, [page])
 
     useEffect(() => {
         fetchRecords()
@@ -64,20 +67,28 @@ export function LectureRecordsPageClient() {
         }
     }, [fetchRecords])
 
-    // console.log("records page client: ",records)
+    const handlePageChange = (newPage: number) => {
+        const params = new URLSearchParams(searchParams.toString())
+        params.set('page', newPage.toString())
+        router.push(`/lecture-records?${params.toString()}`)
+    }
+
+    const toolbar = (
+        <div className="border rounded-lg p-1 flex flex-wrap items-center justify-between gap-1 h-10.5">
+            <LectureRecordsToolbar deleteMode={deleteMode} setDeleteMode={setDeleteMode} />
+            <div className="flex items-center gap-1 h-full">
+                <Separator orientation="vertical" />
+                <Suspense fallback={<Button variant="outline" size="sm" disabled>Sırala...</Button>}>
+                    <SortButton pathname="/lecture-records" />
+                </Suspense>
+            </div>
+        </div>
+    )
 
     if (isLoading) {
         return (
             <>
-                <div className="border rounded-lg p-1 flex flex-wrap items-center justify-between gap-1 h-10.5">
-                    <LectureRecordsToolbar deleteMode={deleteMode} setDeleteMode={setDeleteMode} />
-                    <div className="flex items-center gap-1 h-full">
-                        <Separator orientation="vertical" />
-                        <Suspense fallback={<Button variant="outline" size="sm" disabled>Sırala...</Button>}>
-                            <SortButton pathname="/lecture-records" />
-                        </Suspense>
-                    </div>
-                </div>
+                {toolbar}
                 <LectureRecordsSkeleton />
             </>
         )
@@ -86,15 +97,7 @@ export function LectureRecordsPageClient() {
     if (error) {
         return (
             <>
-                <div className="border rounded-lg p-1 flex flex-wrap items-center justify-between gap-1 h-10.5">
-                    <LectureRecordsToolbar deleteMode={deleteMode} setDeleteMode={setDeleteMode} />
-                    <div className="flex items-center gap-1 h-full">
-                        <Separator orientation="vertical" />
-                        <Suspense fallback={<Button variant="outline" size="sm" disabled>Sırala...</Button>}>
-                            <SortButton pathname="/lecture-records" />
-                        </Suspense>
-                    </div>
-                </div>
+                {toolbar}
                 <div className="text-center text-destructive py-8 space-y-3">
                     <p>Hata: {error}</p>
                     <Button variant="outline" onClick={() => fetchRecords()}>
@@ -106,20 +109,39 @@ export function LectureRecordsPageClient() {
     }
 
     return (
-        <>
-            <div className="border rounded-lg p-1 flex flex-wrap items-center justify-between gap-1 h-10.5">
-                <LectureRecordsToolbar deleteMode={deleteMode} setDeleteMode={setDeleteMode} />
-                <div className="flex items-center gap-1 h-full">
-                    <Separator orientation="vertical" />
-                    <Suspense fallback={<Button variant="outline" size="sm" disabled>Sırala...</Button>}>
-                        <SortButton pathname="/lecture-records" />
-                    </Suspense>
-                </div>
-            </div>
+        <div className="flex flex-col gap-6">
+            {toolbar}
+            
             { records.length <= 0 ? 
                 <div className="flex flex-col items-center justify-center gap-6 mt-16"><Ghost size={100} /><p className="text-4xl font-bold text-center">There is nothing to see here</p></div> : 
-                <LectureRecordsList records={records} deleteMode={deleteMode} />
+                <>
+                    <LectureRecordsList records={records} deleteMode={deleteMode} />
+                    
+                    {pagination.totalPages > 1 && (
+                        <div className="flex items-center justify-center gap-4 py-4">
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handlePageChange(pagination.page - 1)}
+                                disabled={pagination.page <= 1}
+                            >
+                                <ChevronLeft className="w-4 h-4 mr-1" /> Previous
+                            </Button>
+                            <span className="text-sm font-medium">
+                                Page {pagination.page} of {pagination.totalPages}
+                            </span>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handlePageChange(pagination.page + 1)}
+                                disabled={pagination.page >= pagination.totalPages}
+                            >
+                                Next <ChevronRight className="w-4 h-4 ml-1" />
+                            </Button>
+                        </div>
+                    )}
+                </>
             }
-        </>
+        </div>
     )
 };
