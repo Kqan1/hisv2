@@ -118,7 +118,7 @@ export function NoteDetailClient({ params }: { params: Promise<{ id: string }> }
     const addPage = () => {
         const newPage: NotePage = {
             id: `temp-${Date.now()}`,
-            matrix: Array(activeModel.rows).fill(0).map(() => Array(activeModel.cols).fill(0)),
+            matrix: Array(activeModel.rows).fill(0).map(() => Array(activeModel.cols).fill(-1)),
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString()
         }

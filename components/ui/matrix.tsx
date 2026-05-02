@@ -31,7 +31,7 @@ export default function Matrix({
             (initialData && initialData.length > 0) ? initialData :
             Array(rows)
                 .fill(0)
-                .map(() => Array(cols).fill(0)),
+                .map(() => Array(cols).fill(-1)),
     );
     const gridRef = useRef<number[][]>(grid);
     const [tool, setTool] = useState<"pencil" | "eraser">("pencil");
@@ -64,7 +64,7 @@ export default function Matrix({
 
         while (true) {
             if (y0 >= 0 && y0 < rows && x0 >= 0 && x0 < cols) {
-                newGrid[y0][x0] = tool === "pencil" ? 1 : 0;
+                newGrid[y0][x0] = tool === "pencil" ? 1 : -1;
             }
             if (x0 === x1 && y0 === y1) break;
             const e2 = 2 * err;
@@ -94,7 +94,7 @@ export default function Matrix({
             );
         } else {
             nextGrid = prev.map((row) => [...row]);
-            nextGrid[y][x] = tool === "pencil" ? 1 : 0;
+            nextGrid[y][x] = tool === "pencil" ? 1 : -1;
         }
         setGrid(nextGrid);
         onChange?.(nextGrid);
@@ -105,7 +105,7 @@ export default function Matrix({
         if (disabled || !editable) return;
         const emptyGrid = Array(rows)
             .fill(0)
-            .map(() => Array(cols).fill(0));
+            .map(() => Array(cols).fill(-1));
         setGrid(emptyGrid);
         onChange?.(emptyGrid);
     };

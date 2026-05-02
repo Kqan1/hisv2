@@ -22,7 +22,7 @@ export function NewLectureRecordForm() {
 
     const EMPTY_MATRIX = Array(activeModel.rows)
         .fill(0)
-        .map(() => Array(activeModel.cols).fill(0));
+        .map(() => Array(activeModel.cols).fill(-1));
 
     const [title, setTitle] = useState("");
     const [currentMatrix, setCurrentMatrix] =

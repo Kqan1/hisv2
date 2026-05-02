@@ -2,14 +2,19 @@
 
 import ThemeToggle from "@/components/themeToggle";
 import { Heading } from "@/components/ui/heading";
-import { SettingsIcon, CheckCircle2 } from "lucide-react";
+import { SettingsIcon, CheckCircle2, BatteryCharging } from "lucide-react";
 import { useModel } from "@/components/providers/model-context";
 import { cn } from "@/lib/utils";
 import Image from "next/image";
 import { Badge } from "@/components/ui/badge";
+import { Toggle } from "@/components/ui/toggle";
+import { useESP32 } from "@/hooks/useESP32";
+import { useState } from "react";
 
 export default function Settings() {
     const { activeModel, setActiveModel, models } = useModel();
+    const { setPowerSave, getPowerSave } = useESP32();
+    const [powerSave, setPowerSaveState] = useState(getPowerSave());
 
     return (
         <div className="space-y-6">
@@ -70,6 +75,31 @@ export default function Settings() {
                             </button>
                         );
                     })}
+                </div>
+            </div>
+
+            {/* Display */}
+            <div className="space-y-3">
+                <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">Display</h3>
+                <div className="flex items-center justify-between rounded-xl border p-3 bg-card">
+                    <div className="flex flex-col gap-0.5">
+                        <span className="text-sm font-semibold">Power Save Mode</span>
+                        <span className="text-xs text-muted-foreground">
+                            Disable loop power after pulling all pixels down. Re-engages on content change.
+                        </span>
+                    </div>
+                    <Toggle
+                        pressed={powerSave}
+                        onPressedChange={(pressed) => {
+                            setPowerSave(pressed);
+                            setPowerSaveState(pressed);
+                        }}
+                        variant="outline"
+                        className="gap-2"
+                    >
+                        <BatteryCharging size={16} className={powerSave ? "text-green-500" : "text-muted-foreground"} />
+                        {powerSave ? "On" : "Off"}
+                    </Toggle>
                 </div>
             </div>
 

@@ -16,6 +16,7 @@ export interface SetArrayOptions {
   cycle?: boolean;
   holdTime?: number;
   offTime?: number;
+  powerSave?: boolean;
 }
 
 export type Matrix = number[][];
