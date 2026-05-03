@@ -143,35 +143,31 @@ class ESP32Service {
     });
   }
 
-  async setArray(array: Matrix, options: SetArrayOptions = {}): Promise<any> {
-    // Note: options.holdTime and offTime can't be set directly in /api/display anymore.
-    // They are global via /api/timing
+  async setArray(array: Matrix, options: SetArrayOptions = {}): Promise<void> {
+    // Fire-and-forget: send display data without blocking the UI
     const usePowerSave = options.powerSave ?? this.powerSaveEnabled;
 
-    const result = await this.request('/api/display', {
+    this.request('/api/display', {
       method: 'POST',
       body: JSON.stringify({
         password: this.password,
         pixels: array
       })
-    });
+    }).catch(() => {}); // silently handle — connection state is updated by request()
 
     if (usePowerSave) {
       const isAllDown = array.every(row => row.every(cell => cell <= 0));
       if (isAllDown) {
-        // Content is all pulled down — disable loop to save power
-        await this.enableLoop(false).catch(() => {});
+        this.enableLoop(false);
       } else if (this.lastSentMatrix) {
-        // Content changed — ensure loop is re-enabled
         const wasAllDown = this.lastSentMatrix.every(row => row.every(cell => cell <= 0));
         if (wasAllDown) {
-          await this.enableLoop(true).catch(() => {});
+          this.enableLoop(true);
         }
       }
     }
 
     this.lastSentMatrix = array.map(row => [...row]);
-    return result;
   }
 
   setPowerSave(enabled: boolean) {
@@ -193,14 +189,15 @@ class ESP32Service {
     });
   }
 
-  async enableLoop(enabled: boolean): Promise<any> {
-    return this.request('/api/loop', {
+  enableLoop(enabled: boolean): void {
+    // Fire-and-forget: don't block on loop enable/disable
+    this.request('/api/loop', {
       method: 'POST',
       body: JSON.stringify({
         password: this.password,
         enabled
       })
-    });
+    }).catch(() => {});
   }
 
   async clear(): Promise<any> {

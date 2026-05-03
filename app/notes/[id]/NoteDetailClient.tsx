@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, use } from 'react'
+import { useState, useEffect, use, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Matrix from '@/components/ui/matrix'
 import { Button } from '@/components/ui/button'
@@ -8,7 +8,8 @@ import { useESP32 } from '@/hooks/useESP32'
 import { cn } from '@/lib/utils'
 import { useModel } from '@/components/providers/model-context'
 import { toast } from 'sonner'
-import { TriangleAlertIcon, ChevronLeft, ChevronRight, Plus, Trash2, MonitorUp } from 'lucide-react'
+import { TriangleAlertIcon, ChevronLeft, ChevronRight, Plus, Trash2, MonitorUp, BrainCircuit, Loader2 } from 'lucide-react'
+import { useAskAI } from '@/hooks/useAskAI'
 
 type NotePage = {
     id: string
@@ -45,6 +46,26 @@ export function NoteDetailClient({ params }: { params: Promise<{ id: string }> }
     const [activePageIndex, setActivePageIndex] = useState(0)
     const [saving, setSaving] = useState(false)
     const [isDisplaying, setIsDisplaying] = useState(false)
+
+    const pagesRef = useRef<NotePage[]>([])
+    const activePageIndexRef = useRef(0)
+    const titleRef = useRef('')
+    pagesRef.current = pages
+    activePageIndexRef.current = activePageIndex
+    titleRef.current = title
+
+    // Ask AI Teacher shortcut (Space+F on tablet keyboard)
+    const askAI = useAskAI({
+        getContext: useCallback(() => {
+            const p = pagesRef.current[activePageIndexRef.current]
+            return {
+                matrix: p?.matrix || null,
+                description: `Note: "${titleRef.current}", Page ${activePageIndexRef.current + 1} of ${pagesRef.current.length}`,
+                source: 'Notes',
+            }
+        }, []),
+        enableHardwareKeyboard: true,
+    })
 
     useEffect(() => {
         let cancelled = false
@@ -266,14 +287,30 @@ export function NoteDetailClient({ params }: { params: Promise<{ id: string }> }
 
                 <div className="flex flex-wrap gap-2 shrink-0">
                     {!editing && (
-                        <Button 
-                            size="lg" 
-                            variant={isDisplaying ? "secondary" : "default"} 
-                            onClick={handleSendToTablet}
-                        >
-                            <MonitorUp className="mr-2 size-5" />
-                            {isDisplaying ? "Hide Display" : "Display"}
-                        </Button>
+                        <>
+                            <Button 
+                                size="lg" 
+                                variant={isDisplaying ? "secondary" : "default"} 
+                                onClick={handleSendToTablet}
+                            >
+                                <MonitorUp className="mr-2 size-5" />
+                                {isDisplaying ? "Hide Display" : "Display"}
+                            </Button>
+                            <Button
+                                size="lg"
+                                variant={askAI.isTriggering ? "secondary" : "outline"}
+                                onClick={askAI.trigger}
+                                disabled={askAI.isTriggering}
+                                title="Ask AI Teacher about this note (Space+F)"
+                            >
+                                {askAI.isTriggering ? (
+                                    <Loader2 className="mr-2 size-5 animate-spin" />
+                                ) : (
+                                    <BrainCircuit className="mr-2 size-5" />
+                                )}
+                                Ask AI
+                            </Button>
+                        </>
                     )}
                     {editing ? (
                         <>

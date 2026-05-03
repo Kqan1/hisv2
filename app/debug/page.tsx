@@ -9,9 +9,190 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Slider } from '@/components/ui/slider';
 import { useESP32 } from '@/hooks/useESP32';
 import { useESP32Connection } from '@/hooks/useESP32Connection';
-import { Bug, RotateCw } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { ESP32_CONFIG } from '@/lib/config';
+import { Bug, Keyboard, RotateCw, Wifi, WifiOff } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
+
+// ========================================================================
+// KEYBOARD DEBUG COMPONENT
+// ========================================================================
+
+const KEY_LABELS = ['A', 'S', 'D', 'F', 'J', 'K', 'L', ';'] as const;
+const BRAILLE_DOT_LABELS = ['1', '2', '3', '7', '4', '5', '6', '8'] as const;
+
+type KeyState = {
+    keys: number;
+    spacebar: boolean;
+    dots: number[];
+};
+
+function KeyboardDebug() {
+    const [keyWsStatus, setKeyWsStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
+    const [letterWsStatus, setLetterWsStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
+    const [keyState, setKeyState] = useState<KeyState>({ keys: 0, spacebar: false, dots: [0, 0, 0, 0, 0, 0, 0, 0] });
+    const [letterLog, setLetterLog] = useState<string[]>([]);
+    const [typedText, setTypedText] = useState('');
+    const keyWsRef = useRef<WebSocket | null>(null);
+    const letterWsRef = useRef<WebSocket | null>(null);
+
+    const esp32Ip = ESP32_CONFIG.ip;
+
+    const connectKeyWs = useCallback(() => {
+        if (keyWsRef.current?.readyState === WebSocket.OPEN) return;
+        setKeyWsStatus('connecting');
+        try {
+            const ws = new WebSocket(`ws://${esp32Ip}:81/`);
+            ws.onopen = () => setKeyWsStatus('connected');
+            ws.onclose = () => setKeyWsStatus('disconnected');
+            ws.onerror = () => setKeyWsStatus('disconnected');
+            ws.onmessage = (e) => {
+                try {
+                    const msg = JSON.parse(e.data);
+                    if (msg.type === 'keystate') {
+                        setKeyState({ keys: msg.keys, spacebar: msg.spacebar, dots: msg.dots });
+                    }
+                } catch { /* ignore parse errors */ }
+            };
+            keyWsRef.current = ws;
+        } catch {
+            setKeyWsStatus('disconnected');
+        }
+    }, [esp32Ip]);
+
+    const connectLetterWs = useCallback(() => {
+        if (letterWsRef.current?.readyState === WebSocket.OPEN) return;
+        setLetterWsStatus('connecting');
+        try {
+            const ws = new WebSocket(`ws://${esp32Ip}:82/`);
+            ws.onopen = () => setLetterWsStatus('connected');
+            ws.onclose = () => setLetterWsStatus('disconnected');
+            ws.onerror = () => setLetterWsStatus('disconnected');
+            ws.onmessage = (e) => {
+                try {
+                    const msg = JSON.parse(e.data);
+                    if (msg.type === 'letter') {
+                        const entry = `${msg.letter} (dots: ${msg.dotString})`;
+                        setLetterLog(prev => [entry, ...prev].slice(0, 30));
+                        setTypedText(prev => prev + msg.letter);
+                    }
+                } catch { /* ignore parse errors */ }
+            };
+            letterWsRef.current = ws;
+        } catch {
+            setLetterWsStatus('disconnected');
+        }
+    }, [esp32Ip]);
+
+    useEffect(() => {
+        return () => {
+            keyWsRef.current?.close();
+            letterWsRef.current?.close();
+        };
+    }, []);
+
+    const WsStatusDot = ({ status }: { status: string }) => (
+        <span className={`inline-block size-2 rounded-full ${
+            status === 'connected' ? 'bg-green-500' :
+            status === 'connecting' ? 'bg-yellow-500 animate-pulse' :
+            'bg-red-500'
+        }`} />
+    );
+
+    return (
+        <div className="flex flex-col gap-3">
+            <div className="flex items-center justify-between">
+                <h3 className="font-medium flex items-center gap-2">
+                    <Keyboard size={18} /> Keyboard Debug
+                </h3>
+            </div>
+
+            {/* WebSocket connections */}
+            <div className="flex flex-wrap gap-2">
+                <Button
+                    size="sm"
+                    variant={keyWsStatus === 'connected' ? 'secondary' : 'outline'}
+                    onClick={keyWsStatus === 'connected' ? () => { keyWsRef.current?.close(); } : connectKeyWs}
+                    className="gap-2 text-xs"
+                >
+                    <WsStatusDot status={keyWsStatus} />
+                    {keyWsStatus === 'connected' ? 'Keys: Connected' : 'Connect Keys (:81)'}
+                </Button>
+                <Button
+                    size="sm"
+                    variant={letterWsStatus === 'connected' ? 'secondary' : 'outline'}
+                    onClick={letterWsStatus === 'connected' ? () => { letterWsRef.current?.close(); } : connectLetterWs}
+                    className="gap-2 text-xs"
+                >
+                    <WsStatusDot status={letterWsStatus} />
+                    {letterWsStatus === 'connected' ? 'Letters: Connected' : 'Connect Letters (:82)'}
+                </Button>
+            </div>
+
+            {/* Key state visualizer */}
+            <div className="space-y-2">
+                <p className="text-xs text-muted-foreground font-mono">Raw bitmask: {keyState.keys}</p>
+                <div className="flex flex-wrap gap-1.5">
+                    {KEY_LABELS.map((label, i) => (
+                        <div
+                            key={label}
+                            className={`flex flex-col items-center justify-center rounded-lg border-2 transition-all duration-75 min-w-[44px] h-12 ${
+                                keyState.dots[i]
+                                    ? 'bg-primary text-primary-foreground border-primary scale-105 shadow-md'
+                                    : 'bg-muted/30 text-muted-foreground border-border'
+                            }`}
+                        >
+                            <span className="text-sm font-bold">{label}</span>
+                            <span className="text-[10px] opacity-60">dot {BRAILLE_DOT_LABELS[i]}</span>
+                        </div>
+                    ))}
+                </div>
+                <div
+                    className={`flex items-center justify-center rounded-lg border-2 transition-all duration-75 h-10 ${
+                        keyState.spacebar
+                            ? 'bg-primary text-primary-foreground border-primary shadow-md'
+                            : 'bg-muted/30 text-muted-foreground border-border'
+                    }`}
+                >
+                    <span className="text-sm font-bold">SPACEBAR</span>
+                </div>
+            </div>
+
+            <Separator />
+
+            {/* Decoded letters */}
+            <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                    <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Typed Output</p>
+                    {typedText.length > 0 && (
+                        <Button size="sm" variant="ghost" className="h-6 text-xs" onClick={() => { setTypedText(''); setLetterLog([]); }}>
+                            Clear
+                        </Button>
+                    )}
+                </div>
+                <div className="bg-muted/40 rounded-lg p-3 min-h-[40px] font-mono text-lg break-all border border-border/50">
+                    {typedText || <span className="text-muted-foreground text-sm italic">Waiting for input...</span>}
+                </div>
+                {letterLog.length > 0 && (
+                    <details className="text-xs">
+                        <summary className="text-muted-foreground cursor-pointer hover:text-foreground transition-colors">
+                            Letter log ({letterLog.length} entries)
+                        </summary>
+                        <div className="mt-1 max-h-32 overflow-y-auto font-mono space-y-0.5 text-muted-foreground">
+                            {letterLog.map((entry, i) => (
+                                <div key={i}>{entry}</div>
+                            ))}
+                        </div>
+                    </details>
+                )}
+            </div>
+        </div>
+    );
+}
+
+// ========================================================================
+// MAIN DEBUG PAGE
+// ========================================================================
 
 export default function Debug() {
     const { isConnected } = useESP32Connection();
@@ -131,7 +312,8 @@ export default function Debug() {
             {/* Matrix */}
             <Matrix onChange={handleAutoSave} initialData={isRaiseAll} />
 
-
+            {/* Keyboard Debug */}
+            <KeyboardDebug />
 
             {/*Timing Configuration */}
             {(holdTime !== undefined && offTime !== undefined) ? (

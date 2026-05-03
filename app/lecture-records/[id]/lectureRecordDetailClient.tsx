@@ -7,8 +7,9 @@ import { Button } from "@/components/ui/button";
 import { useESP32 } from "@/hooks/useESP32";
 import { cn } from "@/lib/utils";
 import { useModel } from "@/components/providers/model-context";
-import { PlayIcon, SquareIcon, MessageSquareIcon, SendIcon, ChevronDownIcon, ChevronUpIcon, Loader2Icon, TriangleAlertIcon } from "lucide-react";
+import { PlayIcon, SquareIcon, MessageSquareIcon, SendIcon, ChevronDownIcon, ChevronUpIcon, Loader2Icon, TriangleAlertIcon, BrainCircuit } from "lucide-react";
 import { toast } from "sonner";
+import { useAskAI } from '@/hooks/useAskAI';
 
 type FrameWithMatrix = {
     id: string;
@@ -65,6 +66,27 @@ export default function LectureRecordDetailClient({
     const [chatInput, setChatInput] = useState("");
     const [chatLoading, setChatLoading] = useState(false);
     const chatEndRef = useRef<HTMLDivElement>(null);
+
+    const recordRef = useRef<LectureRecordWithFrames | null>(null);
+    const currentFrameIndexRef = useRef(0);
+    recordRef.current = record;
+    currentFrameIndexRef.current = currentFrameIndex;
+
+    // Ask AI Teacher shortcut (Space+F on tablet keyboard)
+    const askAI = useAskAI({
+        getContext: useCallback(() => {
+            const rec = recordRef.current;
+            const idx = currentFrameIndexRef.current;
+            const frame = rec?.frames[idx];
+            const matrix = frame?.pixelMatrix?.matrix as number[][] | undefined;
+            return {
+                matrix: matrix || null,
+                description: `Lecture Record: "${rec?.title || ''}", Frame ${idx + 1} of ${rec?.frames.length || 0}`,
+                source: 'Lecture Records',
+            };
+        }, []),
+        enableHardwareKeyboard: true,
+    });
 
     const scrollToBottom = useCallback(() => {
         chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -452,6 +474,20 @@ export default function LectureRecordDetailClient({
                             <PlayIcon className="size-4 mr-2" />
                         )}
                         {isPlaying ? "Stop" : "Play"}
+                    </Button>
+                    <Button
+                        variant={askAI.isTriggering ? "secondary" : "outline"}
+                        size="sm"
+                        onClick={askAI.trigger}
+                        disabled={askAI.isTriggering || !record.frames.length}
+                        title="Ask AI Teacher about this frame (Space+F)"
+                    >
+                        {askAI.isTriggering ? (
+                            <Loader2Icon className="size-4 mr-2 animate-spin" />
+                        ) : (
+                            <BrainCircuit className="size-4 mr-2" />
+                        )}
+                        Ask AI
                     </Button>
                 </div>
                 <div className="border-dashed border rounded-lg p-2 min-h-[200px]">
