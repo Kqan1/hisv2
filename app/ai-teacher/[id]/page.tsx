@@ -81,7 +81,7 @@ export default function AITeacherChat({ params }: { params: Promise<{ id: string
     // Clear hardware matrix on unmount
     useEffect(() => {
         return () => {
-            setArray(Array(activeModel.rows).fill(0).map(() => Array(activeModel.cols).fill(0)));
+            setArray(Array(activeModel.rows).fill(0).map(() => Array(activeModel.cols).fill(-1)));
             enableLoop(false);
         };
     }, [activeModel.rows, activeModel.cols, setArray, enableLoop]);

@@ -13,6 +13,8 @@ class ESP32Service {
   private listeners = new Set<() => void>();
   private healthCheckInterval: NodeJS.Timeout | null = null;
   private password = ESP32_CONFIG.password;
+  private powerSaveEnabled = false;
+  private lastSentMatrix: Matrix | null = null;
 
   constructor(ip: string, useProxy = false) {
     this.useProxy = useProxy;
@@ -127,7 +129,7 @@ class ESP32Service {
   // ========================================================================
 
   async setPixel(row: number, col: number, raise: boolean): Promise<any> {
-    const value = raise ? 1 : 0;
+    const value = raise ? 1 : -1;
     return this.request('/api/public', {
       method: 'POST',
       body: JSON.stringify({
@@ -144,13 +146,40 @@ class ESP32Service {
   async setArray(array: Matrix, options: SetArrayOptions = {}): Promise<any> {
     // Note: options.holdTime and offTime can't be set directly in /api/display anymore.
     // They are global via /api/timing
-    return this.request('/api/display', {
+    const usePowerSave = options.powerSave ?? this.powerSaveEnabled;
+
+    const result = await this.request('/api/display', {
       method: 'POST',
       body: JSON.stringify({
         password: this.password,
         pixels: array
       })
     });
+
+    if (usePowerSave) {
+      const isAllDown = array.every(row => row.every(cell => cell <= 0));
+      if (isAllDown) {
+        // Content is all pulled down — disable loop to save power
+        await this.enableLoop(false).catch(() => {});
+      } else if (this.lastSentMatrix) {
+        // Content changed — ensure loop is re-enabled
+        const wasAllDown = this.lastSentMatrix.every(row => row.every(cell => cell <= 0));
+        if (wasAllDown) {
+          await this.enableLoop(true).catch(() => {});
+        }
+      }
+    }
+
+    this.lastSentMatrix = array.map(row => [...row]);
+    return result;
+  }
+
+  setPowerSave(enabled: boolean) {
+    this.powerSaveEnabled = enabled;
+  }
+
+  getPowerSave(): boolean {
+    return this.powerSaveEnabled;
   }
 
   async setTiming(holdTime: number, offTime: number): Promise<any> {

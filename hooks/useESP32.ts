@@ -12,6 +12,8 @@ export function useESP32() {
     enableLoop: service.enableLoop.bind(service),
     clear: service.clear.bind(service),
     stop: service.stop.bind(service),
-    getStatus: service.getStatus.bind(service)
+    getStatus: service.getStatus.bind(service),
+    setPowerSave: service.setPowerSave.bind(service),
+    getPowerSave: service.getPowerSave.bind(service),
   };
 }
