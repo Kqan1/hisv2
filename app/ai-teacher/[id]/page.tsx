@@ -1,15 +1,16 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Heading } from '@/components/ui/heading';
 import { Input } from '@/components/ui/input';
-import { BrainCircuit, Send, Loader2, Trash2, PlusIcon, ChevronLeft, TrashIcon } from 'lucide-react'; 
+import { BrainCircuit, Send, Loader2, Trash2, PlusIcon, ChevronLeft, TrashIcon, Volume2, VolumeX } from 'lucide-react'; 
 import Matrix from '@/components/ui/matrix'; 
 import { cn } from '@/lib/utils'; 
 import { useESP32 } from '@/hooks/useESP32';
 import { useModel } from '@/components/providers/model-context';
 import { toast } from 'sonner';
+import { useTTS } from '@/hooks/useTTS';
 
 import { use } from 'react';
 import { useRouter } from 'next/navigation';
@@ -32,6 +33,21 @@ export default function AITeacherChat({ params }: { params: Promise<{ id: string
     const [deviceModelId, setDeviceModelId] = useState<string | undefined>(undefined);
     const { setArray, enableLoop } = useESP32();
     const { activeModel } = useModel();
+    const messagesRef = useRef<Message[]>([]);
+    messagesRef.current = messages;
+
+    // TTS: reads the latest assistant message via tablet keyboard Space+A
+    const tts = useTTS({
+        getText: useCallback(() => {
+            const msgs = messagesRef.current;
+            const lastAssistant = [...msgs].reverse().find(m => m.role === 'assistant');
+            return lastAssistant?.content || null;
+        }, []),
+        enableHardwareKeyboard: true, // auto-connect to tablet keyboard port 81
+    });
+
+    const autoSubmittedRef = useRef(false);
+    const sendToAIRef = useRef<((msgs: Message[], chatId: string) => Promise<void>) | null>(null);
 
     useEffect(() => {
         if (id === 'new') return;
@@ -73,6 +89,17 @@ export default function AITeacherChat({ params }: { params: Promise<{ id: string
                             enableLoop(true);
                         }
                     }
+
+                    // Auto-submit: if last message is from user and no assistant response yet
+                    // (this happens when navigating from Ask AI shortcut)
+                    const msgs = data.messages as Message[];
+                    if (msgs.length > 0 && msgs[msgs.length - 1].role === 'user' && !autoSubmittedRef.current) {
+                        autoSubmittedRef.current = true;
+                        // Defer to next tick so sendToAI ref is populated
+                        setTimeout(() => {
+                            sendToAIRef.current?.(msgs, id);
+                        }, 100);
+                    }
                 }
             })
             .catch(err => console.error("Failed to load chat history", err));
@@ -88,30 +115,18 @@ export default function AITeacherChat({ params }: { params: Promise<{ id: string
 
     const isModelMismatch = deviceModelId && deviceModelId !== activeModel.id;
 
-    const handleSubmit = async (e?: React.FormEvent) => {
-        e?.preventDefault();
-        if (!input.trim() || isLoading) return;
-
-        const userMessage: Message = { 
-            role: 'user', 
-            content: input,
-            timestamp: new Date().toISOString()
-        };
-        setMessages((prev) => [...prev, userMessage]);
-        setInput('');
+    // Core function to send messages to the AI and process the response
+    const sendToAI = useCallback(async (allMessages: Message[], chatId: string) => {
         setIsLoading(true);
 
         try {
             const requestBody: any = { 
-                messages: [...messages, userMessage], 
+                messages: allMessages, 
                 rows: activeModel.rows, 
                 cols: activeModel.cols,
-                deviceModelId: activeModel.id
+                deviceModelId: activeModel.id,
+                chatId,
             };
-            
-            if (id !== 'new') {
-                requestBody.chatId = id;
-            }
 
             const response = await fetch('/api/teacher', {
                 method: 'POST',
@@ -123,7 +138,7 @@ export default function AITeacherChat({ params }: { params: Promise<{ id: string
 
             const data = await response.json();
             
-            if (id === 'new' && data.chatId) {
+            if (chatId === 'new' && data.chatId) {
                 router.replace(`/ai-teacher/${data.chatId}`);
             }
 
@@ -156,6 +171,25 @@ export default function AITeacherChat({ params }: { params: Promise<{ id: string
         } finally {
             setIsLoading(false);
         }
+    }, [activeModel.rows, activeModel.cols, activeModel.id, router, setArray, enableLoop]);
+
+    // Keep the ref in sync so auto-submit can call sendToAI
+    sendToAIRef.current = sendToAI;
+
+    const handleSubmit = async (e?: React.FormEvent) => {
+        e?.preventDefault();
+        if (!input.trim() || isLoading) return;
+
+        const userMessage: Message = { 
+            role: 'user', 
+            content: input,
+            timestamp: new Date().toISOString()
+        };
+        setMessages((prev) => [...prev, userMessage]);
+        setInput('');
+
+        const chatId = id !== 'new' ? id : 'new';
+        await sendToAI([...messages, userMessage], chatId);
     };
 
     if (isModelMismatch) {
@@ -183,6 +217,7 @@ export default function AITeacherChat({ params }: { params: Promise<{ id: string
                     title="AI Teacher" 
                     description="Chat with the AI teacher to learn new concepts." 
                     Icon={<BrainCircuit className="size-8 text-primary" />} 
+                    hideBackButton={true}
                 />
             </div>
             
@@ -226,6 +261,21 @@ export default function AITeacherChat({ params }: { params: Promise<{ id: string
                             <TrashIcon size={16} />
                         </Button>
                     )}
+                    <Button
+                        size="icon-sm"
+                        variant={tts.status === 'playing' || tts.status === 'loading' ? "secondary" : "outline"}
+                        onClick={tts.toggle}
+                        disabled={messages.filter(m => m.role === 'assistant').length === 0}
+                        title={tts.status === 'playing' ? 'Stop reading' : 'Read last response'}
+                    >
+                        {tts.status === 'loading' ? (
+                            <Loader2 size={16} className="animate-spin" />
+                        ) : tts.status === 'playing' ? (
+                            <VolumeX size={16} />
+                        ) : (
+                            <Volume2 size={16} />
+                        )}
+                    </Button>
                 </div>
             </div>
             
