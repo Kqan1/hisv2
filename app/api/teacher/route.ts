@@ -168,7 +168,7 @@ Never exceed the ${cols}x${rows} boundary. If a shape is too complex, simplify i
                 timestamp: new Date().toISOString()
             };
             let finalChatId = chatId;
-            if (!finalChatId) {
+            if (!finalChatId || finalChatId === 'new') {
                 const newChat = await createChat(`Chat ${new Date().toLocaleString()}`, [], deviceModelId);
                 finalChatId = newChat.id;
             }
@@ -188,7 +188,7 @@ Never exceed the ${cols}x${rows} boundary. If a shape is too complex, simplify i
             };
 
             let finalChatId = chatId;
-            if (!finalChatId) {
+            if (!finalChatId || finalChatId === 'new') {
                 const newChat = await createChat(`Chat ${new Date().toLocaleString()}`, []);
                 finalChatId = newChat.id;
             }
