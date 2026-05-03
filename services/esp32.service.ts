@@ -13,7 +13,7 @@ class ESP32Service {
   private listeners = new Set<() => void>();
   private healthCheckInterval: NodeJS.Timeout | null = null;
   private password = ESP32_CONFIG.password;
-  private powerSaveEnabled = false;
+  private powerSaveEnabled = true;
   private lastSentMatrix: Matrix | null = null;
 
   constructor(ip: string, useProxy = false) {

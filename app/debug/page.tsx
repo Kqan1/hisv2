@@ -23,11 +23,11 @@ export default function Debug() {
     const [isRaiseAll, setIsRaiseAll] = useState<number[][]>();
     const [holdTime, setHoldTime] = useState<number>();
     const [offTime, setOffTime] = useState<number>();
-    
+
     const handleAutoSave = (data: number[][]) => {
         // Önceki zamanlayıcıyı temizle (Debounce)
         if (MatrixTimerRef.current) clearTimeout(MatrixTimerRef.current);
-        
+
         // 1 saniye sonra API'ye gönder
         MatrixTimerRef.current = setTimeout(async () => {
             setArray(data, { cycle: true });
@@ -51,7 +51,7 @@ export default function Debug() {
         };
     };
 
-    useEffect(()=>{handleRefresh()}, [])
+    useEffect(() => { handleRefresh() }, [])
 
     useEffect(() => {
         // Değerler henüz yüklenmediyse (undefined ise) veya 0 ise işlem yapma
@@ -82,11 +82,11 @@ export default function Debug() {
             {/* Connection Status */}
             <div className="flex justify-between items-center border">
                 <div className="flex items-center gap-2">
-                    <h3 className="font-medium">Connection Status:</h3> 
+                    <h3 className="font-medium">Connection Status:</h3>
                     <ConnectionIndicator className="p-0!" />
                 </div>
-                <Button 
-                    size="icon" 
+                <Button
+                    size="icon"
                     onClick={handleRefresh}
                     disabled={isRefreshing}
                 >
@@ -115,7 +115,7 @@ export default function Debug() {
                         {loopEnabled ? "Disable Loop" : "Enable Loop"}
                     </Button>
                     <Button
-                        onClick={ async () => {
+                        onClick={async () => {
                             setArray(Array(activeModel.rows).fill(1).map(() => Array(activeModel.cols).fill(1)), { cycle: true });
                             setIsRaiseAll(Array(activeModel.rows).fill(1).map(() => Array(activeModel.cols).fill(1)));
                             enableLoop(true)
@@ -134,14 +134,14 @@ export default function Debug() {
 
 
             {/*Timing Configuration */}
-            { (holdTime !== undefined && offTime !== undefined) ? (
+            {(holdTime !== undefined && offTime !== undefined) ? (
                 <div className="flex flex-col gap-2 !pb-4">
                     <h3 className="font-medium">Timing Configuration</h3>
                     <div className="space-y-2">
                         <h3 className="font-medium">Hold Time: {holdTime}</h3>
-                        <Slider 
+                        <Slider
                             defaultValue={[holdTime]}
-                            max={50}
+                            max={10000}
                             min={1}
                             step={1}
                             disabled={!isConnected}
@@ -151,7 +151,7 @@ export default function Debug() {
                     <Separator className="my-2" />
                     <div className="space-y-2">
                         <h3 className="font-medium">Off Time: {offTime}</h3>
-                        <Slider 
+                        <Slider
                             defaultValue={[offTime]}
                             max={10}
                             min={1}
@@ -160,7 +160,7 @@ export default function Debug() {
                             onValueChange={(value) => setOffTime(value[0])}
                         />
                     </div>
-                </div>) : ( <TimingConfigurationSkeleton /> )
+                </div>) : (<TimingConfigurationSkeleton />)
             }
         </div>
     );

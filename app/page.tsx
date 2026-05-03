@@ -5,6 +5,7 @@ import {
     BrainCircuit,
     FileText,
     HomeIcon,
+    Mic,
     NotebookIcon,
     SettingsIcon,
 } from "lucide-react";
@@ -41,6 +42,11 @@ const menuItems: MenuItemType[] = [
         label: "PDF to Matrix",
         href: "/pdf",
         icon: <FileText className="size-10" />,
+    },
+    {
+        label: "Voice AI Teacher",
+        href: "/voice-draw",
+        icon: <Mic className="size-10" />,
     },
 ];
 

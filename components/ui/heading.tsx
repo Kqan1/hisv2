@@ -10,6 +10,7 @@ interface HeadingProps {
     description: string;
     className?: string;
     Icon?: React.ReactNode;
+    hideBackButton?: boolean;
 }
 
 export const Heading: React.FC<HeadingProps> = ({
@@ -17,6 +18,7 @@ export const Heading: React.FC<HeadingProps> = ({
     description,
     className,
     Icon,
+    hideBackButton = false,
 }) => {
     const pathname = usePathname();
     const router = useRouter();
@@ -43,7 +45,7 @@ export const Heading: React.FC<HeadingProps> = ({
                 </div>
             </div>
 
-            {pathname !== "/" && (
+            {!hideBackButton && pathname !== "/" && (
                 <Button
                     variant="default"
                     size="icon"

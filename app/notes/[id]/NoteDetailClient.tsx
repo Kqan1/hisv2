@@ -8,7 +8,7 @@ import { useESP32 } from '@/hooks/useESP32'
 import { cn } from '@/lib/utils'
 import { useModel } from '@/components/providers/model-context'
 import { toast } from 'sonner'
-import { TriangleAlertIcon, ChevronLeft, ChevronRight, Plus, Trash2 } from 'lucide-react'
+import { TriangleAlertIcon, ChevronLeft, ChevronRight, Plus, Trash2, MonitorUp } from 'lucide-react'
 
 type NotePage = {
     id: string
@@ -34,7 +34,7 @@ function formatNoteDate(createdAt: Date | string): string {
 export function NoteDetailClient({ params }: { params: Promise<{ id: string }> }) {
     const { id } = use(params)
     const router = useRouter()
-    const { setArray } = useESP32()
+    const { setArray, enableLoop } = useESP32()
     const { activeModel, models } = useModel()
     const [note, setNote] = useState<NoteWithMatrix | null>(null)
     const [loading, setLoading] = useState(true)
@@ -44,6 +44,7 @@ export function NoteDetailClient({ params }: { params: Promise<{ id: string }> }
     const [pages, setPages] = useState<NotePage[]>([])
     const [activePageIndex, setActivePageIndex] = useState(0)
     const [saving, setSaving] = useState(false)
+    const [isDisplaying, setIsDisplaying] = useState(false)
 
     useEffect(() => {
         let cancelled = false
@@ -77,14 +78,54 @@ export function NoteDetailClient({ params }: { params: Promise<{ id: string }> }
         }
     }, [id])
 
-    // Send active matrix to ESP32
+    // Auto-sync active matrix to ESP32 only if display mode is active
     useEffect(() => {
+        if (!isDisplaying) return
         const activePage = pages[activePageIndex]
         if (!activePage?.matrix) return
         const m = activePage.matrix
         if (!Array.isArray(m) || m.length !== activeModel.rows || (m[0] && m[0].length !== activeModel.cols)) return
         setArray(m, { cycle: true })
-    }, [activePageIndex, pages, setArray, activeModel])
+    }, [activePageIndex, pages, setArray, activeModel, isDisplaying])
+
+    const handleSendToTablet = async () => {
+        if (isDisplaying) {
+            setIsDisplaying(false)
+            try {
+                // Set all pixels to -1
+                const emptyMatrix = Array(activeModel.rows).fill(0).map(() => Array(activeModel.cols).fill(-1))
+                await enableLoop(true)
+                await setArray(emptyMatrix, { cycle: false })
+                
+                // Wait for 1 second to firmly clear the screen before turning off loop
+                setTimeout(() => {
+                    enableLoop(false).catch(() => {})
+                }, 1000)
+                
+                toast.success("Turned off display")
+            } catch (e) {
+                toast.error("Failed to turn off display")
+            }
+        } else {
+            const activePage = pages[activePageIndex]
+            if (!activePage?.matrix) return
+            const m = activePage.matrix
+            if (!Array.isArray(m) || m.length !== activeModel.rows || (m[0] && m[0].length !== activeModel.cols)) {
+                toast.error("Invalid matrix format for current model")
+                return
+            }
+            
+            setIsDisplaying(true)
+            try {
+                await enableLoop(true)
+                await setArray(m, { cycle: false })
+                toast.success("Sent to tablet!")
+            } catch (e) {
+                setIsDisplaying(false)
+                toast.error("Failed to send to tablet")
+            }
+        }
+    }
 
     const handleSave = async () => {
         if (!note) return
@@ -223,7 +264,17 @@ export function NoteDetailClient({ params }: { params: Promise<{ id: string }> }
                     </div>
                 </div>
 
-                <div className="flex gap-2 shrink-0">
+                <div className="flex flex-wrap gap-2 shrink-0">
+                    {!editing && (
+                        <Button 
+                            size="lg" 
+                            variant={isDisplaying ? "secondary" : "default"} 
+                            onClick={handleSendToTablet}
+                        >
+                            <MonitorUp className="mr-2 size-5" />
+                            {isDisplaying ? "Hide Display" : "Display"}
+                        </Button>
+                    )}
                     {editing ? (
                         <>
                             <Button size="lg" onClick={handleSave} disabled={saving}>
@@ -248,9 +299,6 @@ export function NoteDetailClient({ params }: { params: Promise<{ id: string }> }
                             Edit Note
                         </Button>
                     )}
-                    <Button size="lg" variant="ghost" onClick={() => router.push('/notes')}>
-                        Back
-                    </Button>
                 </div>
             </div>
 
@@ -314,10 +362,10 @@ export function NoteDetailClient({ params }: { params: Promise<{ id: string }> }
                     )}
                 </div>
 
-                <div className="relative group">
+                <div className="relative group w-full">
                     <div className="absolute inset-0 bg-primary/5 rounded-2xl -m-2 -z-10 group-hover:bg-primary/10 transition-colors" />
-                    <div className="bg-background border rounded-2xl p-6 shadow-xl ring-1 ring-border/50">
-                        <div className="flex justify-center w-full max-w-2xl mx-auto">
+                    <div className="bg-background border rounded-2xl p-4 shadow-xl ring-1 ring-border/50 overflow-x-auto w-full">
+                        <div className="w-full max-w-2xl mx-auto min-w-[280px]">
                             <Matrix
                                 key={`${editing}-${activePageIndex}`}
                                 initialData={pages[activePageIndex]?.matrix}

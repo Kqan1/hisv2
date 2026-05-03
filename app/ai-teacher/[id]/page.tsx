@@ -183,6 +183,7 @@ export default function AITeacherChat({ params }: { params: Promise<{ id: string
                     title="AI Teacher" 
                     description="Chat with the AI teacher to learn new concepts." 
                     Icon={<BrainCircuit className="size-8 text-primary" />} 
+                    hideBackButton={true}
                 />
             </div>
             

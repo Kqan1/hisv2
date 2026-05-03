@@ -4,17 +4,15 @@ import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Heading } from '@/components/ui/heading';
-import { BrainCircuit, PlusIcon, MessageSquare, Trash2, XIcon, TrashIcon } from 'lucide-react';
-import { ChatSession } from '@/lib/ai-teacher-store';
+import { Sparkles, PlusIcon, Mic, Trash2, XIcon, TrashIcon } from 'lucide-react';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { Separator } from '@/components/ui/separator';
 import { SortButton } from '@/components/ui/sortButton';
-import { Badge } from '@/components/ui/badge';
-import { useModel } from '@/components/providers/model-context';
+import type { VoiceDrawSession } from '@/lib/voice-draw-store';
 
-function AITeacherToolbar({
+function VoiceDrawToolbar({
     deleteMode,
     setDeleteMode,
     handleNewChat,
@@ -56,22 +54,21 @@ function AITeacherToolbar({
     );
 }
 
-function AITeacherListContent() {
+function VoiceDrawListContent() {
     const router = useRouter();
     const searchParams = useSearchParams();
-    const [chats, setChats] = useState<ChatSession[]>([]);
+    const [chats, setChats] = useState<VoiceDrawSession[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [deleteMode, setDeleteMode] = useState(false);
-    const { models } = useModel();
 
     const sortParam = searchParams.get('sort') || 'createdAt-desc';
 
     const fetchChats = () => {
-        fetch('/api/teacher/chats')
+        fetch('/api/voice-draw/chats')
             .then(res => res.json())
             .then(data => {
                 if (Array.isArray(data)) {
-                    setChats(data.filter(c => c.messages && c.messages.length > 0));
+                    setChats(data.filter(c => c.transcript && c.transcript.length > 0));
                 }
             })
             .catch(err => console.error(err))
@@ -83,19 +80,19 @@ function AITeacherListContent() {
     }, []);
 
     const handleNewChat = () => {
-        router.push(`/ai-teacher/new`);
+        router.push(`/voice-draw/new`);
     };
 
     const handleDeleteChat = async (e: React.MouseEvent, id: string) => {
         e.preventDefault();
         e.stopPropagation();
-        
+
         try {
-            await fetch(`/api/teacher/chats/${id}`, { method: 'DELETE' });
+            await fetch(`/api/voice-draw/chats/${id}`, { method: 'DELETE' });
             setChats(prev => prev.filter(c => c.id !== id));
-            toast.success("Chat deleted");
+            toast.success("Session deleted");
         } catch (error) {
-            toast.error("Failed to delete chat");
+            toast.error("Failed to delete session");
         }
     };
 
@@ -120,16 +117,16 @@ function AITeacherListContent() {
 
     const toolbar = (
         <div className="border rounded-lg p-1 flex flex-wrap items-center justify-between gap-1 h-10.5">
-            <AITeacherToolbar 
-                deleteMode={deleteMode} 
-                setDeleteMode={setDeleteMode} 
-                handleNewChat={handleNewChat} 
-                isLoading={isLoading} 
+            <VoiceDrawToolbar
+                deleteMode={deleteMode}
+                setDeleteMode={setDeleteMode}
+                handleNewChat={handleNewChat}
+                isLoading={isLoading}
             />
             <div className="flex items-center gap-1 h-full">
                 <Separator orientation="vertical" />
                 <Suspense fallback={<Button variant="outline" size="sm" disabled>Sırala...</Button>}>
-                    <SortButton pathname="/ai-teacher" />
+                    <SortButton pathname="/voice-draw" />
                 </Suspense>
             </div>
         </div>
@@ -137,10 +134,10 @@ function AITeacherListContent() {
 
     return (
         <div className="space-y-6 min-h-screen">
-            <Heading 
-                title="AI Teacher Chats" 
-                description="Your previous conversations with the AI Teacher" 
-                Icon={<BrainCircuit className="size-8 text-primary" />} 
+            <Heading
+                title="AI Teacher Sessions"
+                description="Your previous voice-controlled drawing sessions"
+                Icon={<Sparkles className="size-8 text-primary" />}
                 hideBackButton={true}
             />
             {toolbar}
@@ -152,15 +149,12 @@ function AITeacherListContent() {
                 </div>
             ) : sortedChats.length === 0 ? (
                 <div className="flex flex-col items-center justify-center gap-6 mt-16 text-muted-foreground">
-                    <MessageSquare size={100} className="opacity-20" />
-                    <p className="text-xl font-medium">No chats yet. Start a new conversation!</p>
+                    <Mic size={100} className="opacity-20" />
+                    <p className="text-xl font-medium">No sessions yet. Start a chat with the AI teacher!</p>
                 </div>
             ) : (
                 <div className="flex flex-col gap-2">
                     {sortedChats.map(chat => {
-                        const chatModelId = chat.deviceModelId;
-                        const recordModel = models.find(m => m.id === chatModelId);
-
                         if (deleteMode) {
                             return (
                                 <div
@@ -176,12 +170,12 @@ function AITeacherListContent() {
                                             <Trash2 size={20} />
                                         </div>
                                     </div>
-                                    <MessageSquare className="size-5 shrink-0 text-primary" />
+                                    <Mic className="size-5 shrink-0 text-primary" />
                                     <div className="flex flex-col flex-1 min-w-0">
                                         <h3 className="font-semibold truncate">{chat.title}</h3>
                                         <div className="flex items-center gap-2">
                                             <p className="text-xs text-muted-foreground">
-                                                {chat.messages.length} messages
+                                                {chat.transcript.length} messages
                                             </p>
                                             <span className="text-muted-foreground/30">•</span>
                                             <small className="text-[10px] text-muted-foreground uppercase font-mono">
@@ -189,30 +183,25 @@ function AITeacherListContent() {
                                             </small>
                                         </div>
                                     </div>
-                                    {recordModel && (
-                                        <Badge variant="secondary" className="text-[10px] uppercase font-mono shrink-0">
-                                            {recordModel.name}
-                                        </Badge>
-                                    )}
                                 </div>
                             );
                         }
 
                         return (
-                            <Link 
-                                key={chat.id} 
-                                href={`/ai-teacher/${chat.id}`}
+                            <Link
+                                key={chat.id}
+                                href={`/voice-draw/${chat.id}`}
                                 className={cn(
                                     buttonVariants({ variant: 'outline' }),
                                     'h-auto flex items-center p-3 gap-3 w-full text-left'
                                 )}
                             >
-                                <MessageSquare className="size-5 shrink-0 text-primary" />
+                                <Mic className="size-5 shrink-0 text-primary" />
                                 <div className="flex flex-col flex-1 min-w-0">
                                     <h3 className="font-semibold truncate">{chat.title}</h3>
                                     <div className="flex items-center gap-2">
                                         <p className="text-xs text-muted-foreground">
-                                            {chat.messages.length} messages
+                                            {chat.transcript.length} messages
                                         </p>
                                         <span className="text-muted-foreground/30">•</span>
                                         <small className="text-[10px] text-muted-foreground uppercase font-mono">
@@ -220,11 +209,6 @@ function AITeacherListContent() {
                                         </small>
                                     </div>
                                 </div>
-                                {recordModel && (
-                                    <Badge variant="secondary" className="text-[10px] uppercase font-mono shrink-0">
-                                        {recordModel.name}
-                                    </Badge>
-                                )}
                             </Link>
                         );
                     })}
@@ -234,10 +218,10 @@ function AITeacherListContent() {
     );
 }
 
-export default function AITeacherList() {
+export default function VoiceDrawList() {
     return (
         <Suspense fallback={<div className="p-4">Loading...</div>}>
-            <AITeacherListContent />
+            <VoiceDrawListContent />
         </Suspense>
     );
 }
