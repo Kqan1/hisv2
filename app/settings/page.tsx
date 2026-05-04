@@ -109,31 +109,32 @@ export default function Settings() {
             {/* Device IP */}
             <div className="space-y-3">
                 <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">Device Connection</h3>
-                <div className="flex items-center justify-between rounded-xl border p-3 bg-card gap-3">
-                    <div className="flex items-center gap-3 flex-1 min-w-0">
-                        <Wifi size={18} className="text-muted-foreground shrink-0" />
-                        <div className="flex flex-col gap-0.5 flex-1 min-w-0">
-                            <span className="text-sm font-semibold">Device IP</span>
-                            <input
-                                type="text"
-                                value={ip}
-                                onChange={(e) => setIpState(e.target.value)}
-                                onKeyDown={(e) => { if (e.key === 'Enter') handleIpSave(); }}
-                                placeholder="e.g. 192.168.4.1"
-                                className={cn(
-                                    "h-8 w-full rounded-md border border-input bg-background px-2 py-1 text-sm font-mono",
-                                    "ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
-                                )}
-                            />
-                        </div>
+                <div className="rounded-xl border p-3 bg-card space-y-2">
+                    <div className="flex items-center gap-2">
+                        <Wifi size={16} className="text-muted-foreground" />
+                        <span className="text-sm font-semibold">Device IP</span>
                     </div>
-                    <Button
-                        size="sm"
-                        onClick={handleIpSave}
-                        disabled={savingIp || ip.trim() === getIp()}
-                    >
-                        {savingIp ? <Loader2 size={14} className="animate-spin" /> : 'Save'}
-                    </Button>
+                    <div className="flex items-center gap-2">
+                        <input
+                            type="text"
+                            value={ip}
+                            onChange={(e) => setIpState(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === 'Enter') handleIpSave(); }}
+                            placeholder="e.g. 192.168.4.1"
+                            className={cn(
+                                "h-8 flex-1 min-w-0 rounded-md border border-input bg-background px-2 py-1 text-sm font-mono",
+                                "ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+                            )}
+                        />
+                        <Button
+                            size="sm"
+                            className="shrink-0 h-8"
+                            onClick={handleIpSave}
+                            disabled={savingIp || ip.trim() === getIp()}
+                        >
+                            {savingIp ? <Loader2 size={14} className="animate-spin" /> : 'Save'}
+                        </Button>
+                    </div>
                 </div>
             </div>
 

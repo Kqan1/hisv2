@@ -21,7 +21,7 @@ export async function POST(request: NextRequest) {
         }
 
         // Default voice: Rachel (multilingual, clear)
-        const voice = voiceId || 'ljX1ZrXuDIIRVcmiVSyR';
+        const voice = voiceId || '5RqXmIU9ikjifeWoXHMG';
 
         const response = await fetch(
             `https://api.elevenlabs.io/v1/text-to-speech/${voice}`,

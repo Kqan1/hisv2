@@ -12,10 +12,18 @@ class ESP32Service {
   private ip: string;
   private state: ConnectionState = 'checking';
   private listeners = new Set<() => void>();
-  private healthCheckInterval: NodeJS.Timeout | null = null;
   private password = ESP32_CONFIG.password;
   private powerSaveEnabled = true;
   private lastSentMatrix: Matrix | null = null;
+
+  // Status WebSocket (port 83)
+  private statusWs: WebSocket | null = null;
+  private statusReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private lastStatus: ESP32Status | null = null;
+  private statusListeners = new Set<(status: ESP32Status) => void>();
+  private lastMessageTime = 0;
+  private healthTimer: ReturnType<typeof setInterval> | null = null;
+  private monitoring = false;
 
   constructor(ip: string, useProxy = false) {
     this.ip = ip;
@@ -30,10 +38,12 @@ class ESP32Service {
     if (!this.useProxy) {
       this.baseUrl = `http://${ip}`;
     }
-    // Restart health monitoring with the new IP
-    this.stopMonitoring();
-    this.setState('checking');
-    this.startMonitoring();
+    // Restart monitoring with the new IP
+    if (this.monitoring) {
+      this.stopMonitoring();
+      this.setState('checking');
+      this.startMonitoring();
+    }
   }
 
   getIp(): string {
@@ -61,46 +71,104 @@ class ESP32Service {
   }
 
   // ========================================================================
-  // HEALTH CHECK
+  // STATUS WEBSOCKET (port 83) — replaces HTTP polling
   // ========================================================================
 
-  private async healthCheck() {
+  /** Subscribe to real-time status updates from the device */
+  onStatus(callback: (status: ESP32Status) => void) {
+    this.statusListeners.add(callback);
+    // Send last known status immediately if available
+    if (this.lastStatus) {
+      callback(this.lastStatus);
+    }
+    return () => this.statusListeners.delete(callback);
+  }
+
+  /** Get the last known status (may be null if never connected) */
+  getLastStatus(): ESP32Status | null {
+    return this.lastStatus;
+  }
+
+  private connectStatusWs() {
+    if (typeof WebSocket === 'undefined') return; // SSR guard
+    if (this.statusWs?.readyState === WebSocket.OPEN || 
+        this.statusWs?.readyState === WebSocket.CONNECTING) return;
+
     try {
-      const response = await fetch(`${this.baseUrl}/api/status`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ password: this.password }),
-        signal: AbortSignal.timeout(2000),
-        cache: 'no-store'
-      });
-      this.setState(response.ok ? 'connected' : 'disconnected');
+      const ws = new WebSocket(`ws://${this.ip}:83/`);
+
+      ws.onopen = () => {
+        this.setState('connected');
+        this.lastMessageTime = Date.now();
+      };
+
+      ws.onmessage = (event) => {
+        this.lastMessageTime = Date.now();
+        try {
+          const status: ESP32Status = JSON.parse(event.data);
+          if (status.type === 'status') {
+            this.lastStatus = status;
+            this.setState('connected');
+            this.statusListeners.forEach(fn => fn(status));
+          }
+        } catch { /* ignore malformed messages */ }
+      };
+
+      ws.onclose = () => {
+        this.statusWs = null;
+        if (this.monitoring) {
+          this.setState('disconnected');
+          // Auto-reconnect after 2 seconds
+          this.statusReconnectTimer = setTimeout(() => {
+            this.connectStatusWs();
+          }, 2000);
+        }
+      };
+
+      ws.onerror = () => {
+        // onclose will fire after this, handling reconnect
+      };
+
+      this.statusWs = ws;
     } catch {
       this.setState('disconnected');
+      // Retry after 2 seconds
+      this.statusReconnectTimer = setTimeout(() => {
+        this.connectStatusWs();
+      }, 2000);
     }
   }
 
+  /** Start monitoring via status WebSocket (replaces HTTP health check polling) */
   startMonitoring() {
-    if (this.healthCheckInterval) return;
-    
-    this.healthCheck();
-    
-    const scheduleNext = () => {
-      const interval = ESP32_CONFIG.healthCheckInterval[this.state];
-      this.healthCheckInterval = setTimeout(async () => {
-        await this.healthCheck();
-        scheduleNext();
-      }, interval);
-    };
+    if (this.monitoring) return;
+    this.monitoring = true;
 
-    scheduleNext();
+    this.connectStatusWs();
+
+    // Health check: if no message in 10s, connection is dead
+    this.healthTimer = setInterval(() => {
+      if (this.lastMessageTime > 0 && Date.now() - this.lastMessageTime > 10000) {
+        this.setState('disconnected');
+        this.statusWs?.close();
+      }
+    }, 3000);
   }
 
   stopMonitoring() {
-    if (this.healthCheckInterval) {
-      clearTimeout(this.healthCheckInterval);
-      this.healthCheckInterval = null;
+    this.monitoring = false;
+
+    if (this.statusReconnectTimer) {
+      clearTimeout(this.statusReconnectTimer);
+      this.statusReconnectTimer = null;
+    }
+    if (this.healthTimer) {
+      clearInterval(this.healthTimer);
+      this.healthTimer = null;
+    }
+    if (this.statusWs) {
+      this.statusWs.close();
+      this.statusWs = null;
     }
   }
 
@@ -237,6 +305,7 @@ class ESP32Service {
     });
   }
 
+  /** @deprecated Use onStatus() for live updates instead */
   async getStatus(): Promise<ESP32Status> {
     return this.request('/api/status', {
       method: 'POST',
