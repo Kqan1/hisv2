@@ -1,15 +1,22 @@
 export type ConnectionState = 'connected' | 'disconnected' | 'checking';
 
 export interface ESP32Status {
-  success: boolean;
-  pixelOnTime: number;
-  pixelOffTime: number;
-  apiUser: string;
-  ssid: string;
+  type: string;
+  event: string;
   loopEnabled: boolean;
+  latchingMode: boolean;
+  refreshInterval: number;
+  updateOnly: boolean;
+  updateOnlyDir: number;
+  fullRefreshOnUpdate: boolean;
+  refreshRunning: boolean;
   wifiConnected: boolean;
   ip: string;
-  display: number[][];
+  pixelOnTime: number;
+  pixelOffTime: number;
+  uptime: number;
+  freeHeap: number;
+  wifiRssi: number;
 }
 
 export interface SetArrayOptions {

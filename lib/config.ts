@@ -12,8 +12,8 @@ export type DeviceModel = {
 };
 
 export const DEVICE_MODELS: DeviceModel[] = [
-    { id: 'amc-1', name: 'AMC-1', rows: 10, cols: 15, description: 'Standard Model', image: '/devices/amc-1.png' },
-    { id: 'amc-3', name: 'AMC-3', rows: 20, cols: 20, description: 'New Larger Model', image: '/devices/amc-2.png' },
+    { id: 'amc-1', name: 'AMC-1', rows: 10, cols: 15, description: 'Standard Model', image: '/devices/amc-1-render.png' },
+    { id: 'amc-3', name: 'AMC-3', rows: 20, cols: 20, description: 'Upcoming Prototype', image: '/devices/wip.png' },
 ];
 
 export const DEFAULT_MODEL_ID = 'amc-1';
@@ -37,7 +37,7 @@ export const siteConfig = {
         },
         description: "HIS",
         applicationName: "HIS",
-        author: [{ name: "Kqan", url: "https://github.com/Kqan1"}],
+        author: [{ name: "Kqan", url: "https://github.com/Kqan1" }],
         keywords: [
             "",
         ],
@@ -60,14 +60,9 @@ export const ESP32_CONFIG = {
     rows: getModelById(DEFAULT_MODEL_ID).rows,
     cols: getModelById(DEFAULT_MODEL_ID).cols,
     ip: process.env.NEXT_PUBLIC_ESP32_IP || "http://[IP_ADDRESS]",
-    useProxy: process.env.NEXT_PUBLIC_USE_PROXY === 'true', // Yeni
+    useProxy: process.env.NEXT_PUBLIC_USE_PROXY === 'true',
     password: process.env.NEXT_PUBLIC_ESP32_PASSWORD || '7580',
     apiUser: process.env.NEXT_PUBLIC_ESP32_USER || 'api_user',
     apiPass: process.env.NEXT_PUBLIC_ESP32_API_PASS || 'api_pass',
     timeout: 3000,
-    healthCheckInterval: {
-        connected: 5000,
-        disconnected: 2000,
-        checking: 1000
-    }
 } as const;

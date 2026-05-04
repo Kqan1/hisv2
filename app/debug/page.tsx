@@ -10,7 +10,7 @@ import { Slider } from '@/components/ui/slider';
 import { useESP32 } from '@/hooks/useESP32';
 import { useESP32Connection } from '@/hooks/useESP32Connection';
 import { ESP32_CONFIG } from '@/lib/config';
-import { Bug, Keyboard, RotateCw, Wifi, WifiOff } from 'lucide-react';
+import { Bug, Keyboard, Wifi, WifiOff } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -196,14 +196,17 @@ function KeyboardDebug() {
 
 export default function Debug() {
     const { isConnected } = useESP32Connection();
-    const { setArray, enableLoop, getStatus, stop, setTiming } = useESP32();
+    const { setArray, enableLoop, stop, setTiming, onStatus, getLastStatus } = useESP32();
     const { activeModel } = useModel();
     const MatrixTimerRef = useRef<NodeJS.Timeout | null>(null);
     const [loopEnabled, setLoopEnabled] = useState(false);
-    const [isRefreshing, setIsRefreshing] = useState(false);
     const [isRaiseAll, setIsRaiseAll] = useState<number[][]>();
     const [holdTime, setHoldTime] = useState<number>();
     const [offTime, setOffTime] = useState<number>();
+    const [uptime, setUptime] = useState<number>();
+    const [freeHeap, setFreeHeap] = useState<number>();
+    const [wifiRssi, setWifiRssi] = useState<number>();
+    const timingUserEdit = useRef(false);
 
     const handleAutoSave = (data: number[][]) => {
         // Önceki zamanlayıcıyı temizle (Debounce)
@@ -216,38 +219,49 @@ export default function Debug() {
         }, 1000);
     };
 
-    const handleRefresh = async () => {
-        setIsRefreshing(true);
-        try {
-            const status = await getStatus();
-            setHoldTime(status.pixelOnTime)
-            setOffTime(status.pixelOffTime)
-            setLoopEnabled(status.loopEnabled)
-            console.log("✅ Status refreshed:", status);
-        } catch (error) {
-            console.error("❌ Refresh failed:", error);
-            toast.error('Failed to refresh status');
-        } finally {
-            setIsRefreshing(false);
-        };
-    };
+    // Subscribe to real-time status via WebSocket (port 83)
+    useEffect(() => {
+        // Seed from last known status if available
+        const last = getLastStatus();
+        if (last) {
+            setHoldTime(prev => prev ?? last.pixelOnTime);
+            setOffTime(prev => prev ?? last.pixelOffTime);
+            setLoopEnabled(last.loopEnabled);
+            setUptime(last.uptime);
+            setFreeHeap(last.freeHeap);
+            setWifiRssi(last.wifiRssi);
+        }
 
-    useEffect(() => { handleRefresh() }, [])
+        const unsub = onStatus((status) => {
+            // Only update timing from device if user is NOT actively editing
+            if (!timingUserEdit.current) {
+                setHoldTime(status.pixelOnTime);
+                setOffTime(status.pixelOffTime);
+            }
+            setLoopEnabled(status.loopEnabled);
+            setUptime(status.uptime);
+            setFreeHeap(status.freeHeap);
+            setWifiRssi(status.wifiRssi);
+        });
+
+        return unsub;
+    }, [onStatus, getLastStatus]);
 
     useEffect(() => {
         // Değerler henüz yüklenmediyse (undefined ise) veya 0 ise işlem yapma
         if (!holdTime || !offTime) return;
 
+        // Mark as user edit so WebSocket status doesn't overwrite
+        timingUserEdit.current = true;
+
         // 1 saniyelik bir sayaç başlat
         const timer = setTimeout(() => {
             console.log("Autosave: Timing sending...", holdTime, offTime);
             setTiming(holdTime, offTime);
+            // After send, allow status updates again
+            setTimeout(() => { timingUserEdit.current = false; }, 2000);
         }, 1000);
 
-        // CLEANUP FONKSİYONU:
-        // Eğer 1 saniye dolmadan holdTime veya offTime tekrar değişirse,
-        // React bu return fonksiyonunu çalıştırır ve önceki sayacı iptal eder.
-        // Böylece sadece son değer için API isteği atılır.
         return () => clearTimeout(timer);
     }, [holdTime, offTime, setTiming]);
 
@@ -261,18 +275,24 @@ export default function Debug() {
             />
 
             {/* Connection Status */}
-            <div className="flex justify-between items-center border">
-                <div className="flex items-center gap-2">
+            <div className="flex flex-col gap-1 border">
+                <div className="flex items-center justify-between">
                     <h3 className="font-medium">Connection Status:</h3>
                     <ConnectionIndicator className="p-0!" />
                 </div>
-                <Button
-                    size="icon"
-                    onClick={handleRefresh}
-                    disabled={isRefreshing}
-                >
-                    <RotateCw className={isRefreshing ? 'animate-spin' : ''} />
-                </Button>
+                {(uptime !== undefined || freeHeap !== undefined || wifiRssi !== undefined) && (
+                    <div className="flex items-center gap-3 text-xs text-muted-foreground font-mono">
+                        {uptime !== undefined && (
+                            <span>⏱ {Math.floor(uptime / 60)}m {uptime % 60}s</span>
+                        )}
+                        {freeHeap !== undefined && (
+                            <span>{(freeHeap / 1024).toFixed(0)}KB free</span>
+                        )}
+                        {wifiRssi !== undefined && wifiRssi !== 0 && (
+                            <span>{wifiRssi} dBm</span>
+                        )}
+                    </div>
+                )}
             </div>
 
             {/* Functions */}
@@ -281,7 +301,6 @@ export default function Debug() {
                 <div className="flex items-center gap-2">
                     <Button
                         onClick={stop}
-                        disabled={!isConnected}
                     >
                         Stop
                     </Button>
@@ -291,7 +310,6 @@ export default function Debug() {
                             await enableLoop(newState);
                             setLoopEnabled(newState);
                         }}
-                        disabled={!isConnected}
                     >
                         {loopEnabled ? "Disable Loop" : "Enable Loop"}
                     </Button>
@@ -302,7 +320,6 @@ export default function Debug() {
                             enableLoop(true)
                             setLoopEnabled(true)
                         }}
-                        disabled={!isConnected}
                     >
                         Raise All
                     </Button>
@@ -326,8 +343,7 @@ export default function Debug() {
                             max={10000}
                             min={1}
                             step={1}
-                            disabled={!isConnected}
-                            onValueChange={(value) => setHoldTime(value[0])}
+                                onValueChange={(value) => setHoldTime(value[0])}
                         />
                     </div>
                     <Separator className="my-2" />
@@ -338,8 +354,7 @@ export default function Debug() {
                             max={10}
                             min={1}
                             step={1}
-                            disabled={!isConnected}
-                            onValueChange={(value) => setOffTime(value[0])}
+                                onValueChange={(value) => setOffTime(value[0])}
                         />
                     </div>
                 </div>) : (<TimingConfigurationSkeleton />)
