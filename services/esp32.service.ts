@@ -31,10 +31,35 @@ class ESP32Service {
     this.baseUrl = useProxy 
       ? '/api/esp32'  // Next.js proxy
       : `http://${ip}`; // Direkt ESP32
+
+    if (typeof window !== 'undefined') {
+      const savedPowerSave = localStorage.getItem('esp32_power_save');
+      if (savedPowerSave !== null) {
+        this.powerSaveEnabled = savedPowerSave === 'true';
+      }
+
+      const savedIp = localStorage.getItem('esp32_ip');
+      if (savedIp && !this.ip) {
+        this.ip = savedIp;
+      }
+    }
+
+    // Default IP if still empty
+    if (!this.ip) {
+      this.ip = '192.168.10.79';
+    }
+
+    // Adjust baseUrl again in case IP changed
+    this.baseUrl = useProxy 
+      ? '/api/esp32'
+      : `http://${this.ip}`;
   }
 
   setIp(ip: string) {
     this.ip = ip;
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('esp32_ip', ip);
+    }
     if (!this.useProxy) {
       this.baseUrl = `http://${ip}`;
     }
@@ -257,6 +282,9 @@ class ESP32Service {
 
   setPowerSave(enabled: boolean) {
     this.powerSaveEnabled = enabled;
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('esp32_power_save', String(enabled));
+    }
   }
 
   getPowerSave(): boolean {
@@ -325,7 +353,7 @@ let esp32Instance: ESP32Service | null = null;
 export function getESP32Service(ip?: string, useProxy = true): ESP32Service {
   if (!esp32Instance) {
     esp32Instance = new ESP32Service(
-      ip || ESP32_CONFIG.ip,
+      ip || '',
       useProxy
     );
   }

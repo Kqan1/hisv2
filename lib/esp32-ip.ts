@@ -1,7 +1,7 @@
 import { ESP32_CONFIG } from '@/lib/config';
 
 // Mutable runtime IP — can be updated via the /api/esp32/ip endpoint
-let runtimeIp: string = ESP32_CONFIG.ip;
+let runtimeIp: string = '192.168.4.1';
 
 export function getEsp32Ip(): string {
     return runtimeIp;
