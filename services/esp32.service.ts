@@ -313,6 +313,22 @@ class ESP32Service {
     }).catch(() => {});
   }
 
+  async setLatching(options: {
+    enabled?: boolean;
+    refreshInterval?: number;
+    updateOnly?: boolean;
+    updateOnlyDir?: number;
+    fullRefreshOnUpdate?: boolean;
+  }): Promise<any> {
+    return this.request('/api/latching', {
+      method: 'POST',
+      body: JSON.stringify({
+        password: this.password,
+        ...options
+      })
+    });
+  }
+
   async clear(): Promise<any> {
     return this.request('/api/public', {
       method: 'POST',

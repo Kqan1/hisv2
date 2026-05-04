@@ -2,7 +2,7 @@
 
 import ThemeToggle from "@/components/themeToggle";
 import { Heading } from "@/components/ui/heading";
-import { SettingsIcon, CheckCircle2, BatteryCharging, Wifi, Loader2 } from "lucide-react";
+import { SettingsIcon, CheckCircle2, BatteryCharging, Wifi, Loader2, Zap } from "lucide-react";
 import { useModel } from "@/components/providers/model-context";
 import { cn } from "@/lib/utils";
 import Image from "next/image";
@@ -10,15 +10,60 @@ import { Badge } from "@/components/ui/badge";
 import { Toggle } from "@/components/ui/toggle";
 import { Button } from "@/components/ui/button";
 import { useESP32 } from "@/hooks/useESP32";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { toast } from "sonner";
 
 export default function Settings() {
     const { activeModel, setActiveModel, models } = useModel();
-    const { setPowerSave, getPowerSave, setIp, getIp } = useESP32();
+    const { setPowerSave, getPowerSave, setIp, getIp, setLatching, onStatus, getLastStatus } = useESP32();
     const [powerSave, setPowerSaveState] = useState(getPowerSave());
     const [ip, setIpState] = useState(getIp() || '');
     const [savingIp, setSavingIp] = useState(false);
+
+    // Update mode: 'off' | 'down' | 'up' | 'both'
+    const [updateMode, setUpdateMode] = useState<string>(() => {
+        if (typeof window !== 'undefined') {
+            return localStorage.getItem('esp32_update_mode') || 'off';
+        }
+        return 'off';
+    });
+
+    // Sync update mode from device status on mount
+    useEffect(() => {
+        const last = getLastStatus();
+        if (last) {
+            const mode = last.updateOnly
+                ? last.updateOnlyDir === 1 ? 'down' : last.updateOnlyDir === 2 ? 'up' : 'both'
+                : 'off';
+            setUpdateMode(mode);
+            localStorage.setItem('esp32_update_mode', mode);
+        }
+
+        const unsub = onStatus((status) => {
+            const mode = status.updateOnly
+                ? status.updateOnlyDir === 1 ? 'down' : status.updateOnlyDir === 2 ? 'up' : 'both'
+                : 'off';
+            setUpdateMode(mode);
+            localStorage.setItem('esp32_update_mode', mode);
+        });
+        return unsub;
+    }, [onStatus, getLastStatus]);
+
+    const handleUpdateModeChange = async (mode: string) => {
+        setUpdateMode(mode);
+        localStorage.setItem('esp32_update_mode', mode);
+        try {
+            if (mode === 'off') {
+                await setLatching({ updateOnly: false });
+            } else {
+                const dir = mode === 'down' ? 1 : mode === 'up' ? 2 : 0;
+                await setLatching({ updateOnly: true, updateOnlyDir: dir });
+            }
+            toast.success(`Update mode: ${mode === 'off' ? 'Off' : mode === 'down' ? 'Down pull only' : mode === 'up' ? 'Up pull only' : 'Both directions'}`);
+        } catch {
+            toast.error('Failed to update mode');
+        }
+    };
 
     const handleIpSave = async () => {
         const trimmed = (ip || '').trim();
@@ -160,6 +205,41 @@ export default function Settings() {
                         <BatteryCharging size={16} className={powerSave ? "text-green-500" : "text-muted-foreground"} />
                         {powerSave ? "On" : "Off"}
                     </Toggle>
+                </div>
+
+                {/* Update Mode */}
+                <div className="rounded-xl border p-3 bg-card space-y-2">
+                    <div className="flex flex-col gap-0.5">
+                        <div className="flex items-center gap-2">
+                            <Zap size={16} className="text-muted-foreground" />
+                            <span className="text-sm font-semibold">Update Mode</span>
+                        </div>
+                        <span className="text-xs text-muted-foreground">
+                            Controls which pixel directions are actuated on every refresh vs. only on change.
+                        </span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                        {[
+                            { value: 'off', label: 'Off', desc: 'Refresh all' },
+                            { value: 'down', label: 'Down Only', desc: 'Down on change' },
+                            { value: 'up', label: 'Up Only', desc: 'Up on change' },
+                            { value: 'both', label: 'Both', desc: 'All on change' },
+                        ].map((opt) => (
+                            <button
+                                key={opt.value}
+                                onClick={() => handleUpdateModeChange(opt.value)}
+                                className={cn(
+                                    "flex flex-col items-center rounded-lg border p-2 text-center transition-all duration-200",
+                                    updateMode === opt.value
+                                        ? "border-primary bg-primary/10 ring-1 ring-primary/30"
+                                        : "border-border hover:bg-accent/30"
+                                )}
+                            >
+                                <span className="text-xs font-semibold">{opt.label}</span>
+                                <span className="text-[10px] text-muted-foreground">{opt.desc}</span>
+                            </button>
+                        ))}
+                    </div>
                 </div>
             </div>
 
