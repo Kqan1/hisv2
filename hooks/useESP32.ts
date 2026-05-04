@@ -18,5 +18,7 @@ export function useESP32() {
     getStatus: service.getStatus.bind(service),
     setPowerSave: service.setPowerSave.bind(service),
     getPowerSave: service.getPowerSave.bind(service),
+    setIp: service.setIp.bind(service),
+    getIp: service.getIp.bind(service),
   }), [service]);
 }
