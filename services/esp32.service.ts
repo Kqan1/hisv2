@@ -9,6 +9,7 @@ import type {
 class ESP32Service {
   private baseUrl: string;
   private useProxy: boolean;
+  private ip: string;
   private state: ConnectionState = 'checking';
   private listeners = new Set<() => void>();
   private healthCheckInterval: NodeJS.Timeout | null = null;
@@ -17,10 +18,26 @@ class ESP32Service {
   private lastSentMatrix: Matrix | null = null;
 
   constructor(ip: string, useProxy = false) {
+    this.ip = ip;
     this.useProxy = useProxy;
     this.baseUrl = useProxy 
       ? '/api/esp32'  // Next.js proxy
       : `http://${ip}`; // Direkt ESP32
+  }
+
+  setIp(ip: string) {
+    this.ip = ip;
+    if (!this.useProxy) {
+      this.baseUrl = `http://${ip}`;
+    }
+    // Restart health monitoring with the new IP
+    this.stopMonitoring();
+    this.setState('checking');
+    this.startMonitoring();
+  }
+
+  getIp(): string {
+    return this.ip;
   }
 
   // ========================================================================

@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { ESP32_CONFIG } from '@/lib/config';
+import { getEsp32Ip } from '@/lib/esp32-ip';
 
-//const ESP32_BASE_URL = 'http://192.168.4.1';
-const ESP32_BASE_URL = `http://${ESP32_CONFIG.ip}`
+function getBaseUrl() {
+    return `http://${getEsp32Ip()}`;
+}
 
 export async function GET(
     request: NextRequest,
@@ -16,7 +17,7 @@ export async function GET(
     }
 
     try {
-        const response = await fetch(`${ESP32_BASE_URL}/${path}`, {
+        const response = await fetch(`${getBaseUrl()}/${path}`, {
             method: 'GET',
             signal: AbortSignal.timeout(3000),
         });
@@ -58,7 +59,7 @@ export async function POST(
             body = await request.text();
         }
 
-    const response = await fetch(`${ESP32_BASE_URL}/${path}`, {
+    const response = await fetch(`${getBaseUrl()}/${path}`, {
         method: 'POST',
         headers: {
             'Content-Type': contentType || 'application/x-www-form-urlencoded',
@@ -98,7 +99,7 @@ export async function HEAD(
     }
 
     try {
-        const response = await fetch(`${ESP32_BASE_URL}/${path}`, {
+        const response = await fetch(`${getBaseUrl()}/${path}`, {
             method: 'HEAD',
             signal: AbortSignal.timeout(2000),
         });
