@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ESP32_CONFIG } from '@/lib/config';
 import { toast } from 'sonner';
+import { useESP32 } from '@/hooks/useESP32';
 
 interface AskAIContext {
     /** The matrix currently on display (2D array) */
@@ -40,6 +41,7 @@ export function useAskAI({ getContext, enableHardwareKeyboard = true }: UseAskAI
     const router = useRouter();
     const [isTriggering, setIsTriggering] = useState(false);
     const [isConnected, setIsConnected] = useState(false);
+    const { getIp } = useESP32();
     const wsRef = useRef<WebSocket | null>(null);
     const triggerRef = useRef<() => void>(() => {});
 
@@ -117,7 +119,7 @@ export function useAskAI({ getContext, enableHardwareKeyboard = true }: UseAskAI
     useEffect(() => {
         if (!enableHardwareKeyboard) return;
 
-        const esp32Ip = ESP32_CONFIG.ip;
+        const esp32Ip = getIp();
         let ws: WebSocket | null = null;
         let reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
 

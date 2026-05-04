@@ -9,7 +9,6 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Slider } from '@/components/ui/slider';
 import { useESP32 } from '@/hooks/useESP32';
 import { useESP32Connection } from '@/hooks/useESP32Connection';
-import { ESP32_CONFIG } from '@/lib/config';
 import { Bug, Keyboard, Wifi, WifiOff } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
@@ -36,23 +35,36 @@ function KeyboardDebug() {
     const keyWsRef = useRef<WebSocket | null>(null);
     const letterWsRef = useRef<WebSocket | null>(null);
 
-    const esp32Ip = ESP32_CONFIG.ip;
+    const { getIp } = useESP32();
+    const esp32Ip = getIp();
 
     const connectKeyWs = useCallback(() => {
         if (keyWsRef.current?.readyState === WebSocket.OPEN) return;
         setKeyWsStatus('connecting');
         try {
             const ws = new WebSocket(`ws://${esp32Ip}:81/`);
-            ws.onopen = () => setKeyWsStatus('connected');
-            ws.onclose = () => setKeyWsStatus('disconnected');
-            ws.onerror = () => setKeyWsStatus('disconnected');
+            ws.onopen = () => {
+                console.log('Key WebSocket connected');
+                setKeyWsStatus('connected');
+            };
+            ws.onclose = () => {
+                console.log('Key WebSocket disconnected');
+                setKeyWsStatus('disconnected');
+            };
+            ws.onerror = (error) => {
+                console.error('Key WebSocket error:', error);
+                setKeyWsStatus('disconnected');
+            };
             ws.onmessage = (e) => {
                 try {
                     const msg = JSON.parse(e.data);
+                    console.log('Key WebSocket message:', msg);
                     if (msg.type === 'keystate') {
                         setKeyState({ keys: msg.keys, spacebar: msg.spacebar, dots: msg.dots });
                     }
-                } catch { /* ignore parse errors */ }
+                } catch (err) {
+                    console.error('Key WebSocket parse error:', err);
+                }
             };
             keyWsRef.current = ws;
         } catch {
@@ -65,18 +77,30 @@ function KeyboardDebug() {
         setLetterWsStatus('connecting');
         try {
             const ws = new WebSocket(`ws://${esp32Ip}:82/`);
-            ws.onopen = () => setLetterWsStatus('connected');
-            ws.onclose = () => setLetterWsStatus('disconnected');
-            ws.onerror = () => setLetterWsStatus('disconnected');
+            ws.onopen = () => {
+                console.log('Letter WebSocket connected');
+                setLetterWsStatus('connected');
+            };
+            ws.onclose = () => {
+                console.log('Letter WebSocket disconnected');
+                setLetterWsStatus('disconnected');
+            };
+            ws.onerror = (error) => {
+                console.error('Letter WebSocket error:', error);
+                setLetterWsStatus('disconnected');
+            };
             ws.onmessage = (e) => {
                 try {
                     const msg = JSON.parse(e.data);
+                    console.log('Letter WebSocket message:', msg);
                     if (msg.type === 'letter') {
                         const entry = `${msg.letter} (dots: ${msg.dotString})`;
                         setLetterLog(prev => [entry, ...prev].slice(0, 30));
                         setTypedText(prev => prev + msg.letter);
                     }
-                } catch { /* ignore parse errors */ }
+                } catch (err) {
+                    console.error('Letter WebSocket parse error:', err);
+                }
             };
             letterWsRef.current = ws;
         } catch {
@@ -226,13 +250,14 @@ export default function Debug() {
         if (last) {
             setHoldTime(prev => prev ?? last.pixelOnTime);
             setOffTime(prev => prev ?? last.pixelOffTime);
-            setLoopEnabled(last.loopEnabled);
-            setUptime(last.uptime);
-            setFreeHeap(last.freeHeap);
-            setWifiRssi(last.wifiRssi);
+            setLoopEnabled(prev => prev ?? last.loopEnabled);
+            setUptime(prev => prev ?? last.uptime);
+            setFreeHeap(prev => prev ?? last.freeHeap);
+            setWifiRssi(prev => prev ?? last.wifiRssi);
         }
 
         const unsub = onStatus((status) => {
+            console.log("Real status from socket:", status.uptime);
             // Only update timing from device if user is NOT actively editing
             if (!timingUserEdit.current) {
                 setHoldTime(status.pixelOnTime);
@@ -246,6 +271,17 @@ export default function Debug() {
 
         return unsub;
     }, [onStatus, getLastStatus]);
+
+    // Local uptime ticker to make it look smooth (1s increments)
+    // while real data comes every 5s from the device
+    useEffect(() => {
+        const interval = setInterval(() => {
+            if (isConnected) {
+                setUptime(prev => (prev !== undefined ? prev + 1 : prev));
+            }
+        }, 1000);
+        return () => clearInterval(interval);
+    }, [isConnected]);
 
     useEffect(() => {
         // Değerler henüz yüklenmediyse (undefined ise) veya 0 ise işlem yapma

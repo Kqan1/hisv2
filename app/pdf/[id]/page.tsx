@@ -7,7 +7,6 @@ import { Button } from '@/components/ui/button';
 import { Heading } from '@/components/ui/heading';
 import { useESP32 } from '@/hooks/useESP32';
 import { useModel } from '@/components/providers/model-context';
-import { ESP32_CONFIG } from '@/lib/config';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import {
@@ -30,11 +29,20 @@ import { useAskAI, createAskAIComboTracker } from '@/hooks/useAskAI';
 export default function PdfDetailPage({ params }: { params: Promise<{ id: string }> }) {
     const { id } = use(params);
     const router = useRouter();
-    const { setArray, enableLoop } = useESP32();
+    const { setArray, enableLoop, getIp } = useESP32();
     const { activeModel, models } = useModel();
     const [conversion, setConversion] = useState<PdfConversion | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+
+    // Reset state when ID changes
+    const [prevId, setPrevId] = useState(id);
+    if (id !== prevId) {
+        setPrevId(id);
+        setLoading(true);
+        setError(null);
+    }
+
     const [activePageIndex, setActivePageIndex] = useState(0);
     const [isDisplaying, setIsDisplaying] = useState(false);
     const [keyboardConnected, setKeyboardConnected] = useState(false);
@@ -43,9 +51,11 @@ export default function PdfDetailPage({ params }: { params: Promise<{ id: string
     const conversionRef = useRef<PdfConversion | null>(null);
     const activePageIndexRef = useRef(0);
 
-    // Keep refs in sync for the TTS getText callback
-    conversionRef.current = conversion;
-    activePageIndexRef.current = activePageIndex;
+    // Refs for callbacks used by hooks
+    useEffect(() => {
+        conversionRef.current = conversion;
+        activePageIndexRef.current = activePageIndex;
+    }, [conversion, activePageIndex]);
 
     // TTS hook — hardware keyboard combo handled in our own WS handler below
     const tts = useTTS({
@@ -58,7 +68,9 @@ export default function PdfDetailPage({ params }: { params: Promise<{ id: string
         enableHardwareKeyboard: false, // we detect Space+A in our existing WS below
     });
     const ttsToggleRef = useRef(tts.toggle);
-    ttsToggleRef.current = tts.toggle;
+    useEffect(() => {
+        ttsToggleRef.current = tts.toggle;
+    }, [tts.toggle]);
     const ttsComboRef = useRef(createTTSComboTracker());
 
     // Ask AI hook — hardware keyboard combo handled in our own WS handler below
@@ -76,14 +88,14 @@ export default function PdfDetailPage({ params }: { params: Promise<{ id: string
         enableHardwareKeyboard: false,
     });
     const askAITriggerRef = useRef(askAI.trigger);
-    askAITriggerRef.current = askAI.trigger;
+    useEffect(() => {
+        askAITriggerRef.current = askAI.trigger;
+    }, [askAI.trigger]);
     const askAIComboRef = useRef(createAskAIComboTracker());
 
     // Fetch conversion data
     useEffect(() => {
         let cancelled = false;
-        setLoading(true);
-        setError(null);
 
         fetch(`/api/pdf/conversions/${id}`)
             .then((res) => {
@@ -117,7 +129,7 @@ export default function PdfDetailPage({ params }: { params: Promise<{ id: string
     const connectKeyboard = useCallback(() => {
         if (keyWsRef.current?.readyState === WebSocket.OPEN) return;
 
-        const esp32Ip = ESP32_CONFIG.ip;
+        const esp32Ip = getIp();
         try {
             const ws = new WebSocket(`ws://${esp32Ip}:81/`);
             ws.onopen = () => setKeyboardConnected(true);
@@ -165,7 +177,7 @@ export default function PdfDetailPage({ params }: { params: Promise<{ id: string
         } catch {
             setKeyboardConnected(false);
         }
-    }, [conversion]);
+    }, [conversion, getIp]);
 
     // Also listen for browser keyboard A/S as fallback
     useEffect(() => {

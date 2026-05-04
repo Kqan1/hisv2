@@ -17,11 +17,11 @@ export default function Settings() {
     const { activeModel, setActiveModel, models } = useModel();
     const { setPowerSave, getPowerSave, setIp, getIp } = useESP32();
     const [powerSave, setPowerSaveState] = useState(getPowerSave());
-    const [ip, setIpState] = useState(getIp());
+    const [ip, setIpState] = useState(getIp() || '');
     const [savingIp, setSavingIp] = useState(false);
 
     const handleIpSave = async () => {
-        const trimmed = ip.trim();
+        const trimmed = (ip || '').trim();
         if (!trimmed) {
             toast.error('IP address cannot be empty');
             return;
@@ -117,7 +117,7 @@ export default function Settings() {
                     <div className="flex items-center gap-2">
                         <input
                             type="text"
-                            value={ip}
+                            value={ip || ''}
                             onChange={(e) => setIpState(e.target.value)}
                             onKeyDown={(e) => { if (e.key === 'Enter') handleIpSave(); }}
                             placeholder="e.g. 192.168.4.1"
@@ -130,7 +130,7 @@ export default function Settings() {
                             size="sm"
                             className="shrink-0 h-8"
                             onClick={handleIpSave}
-                            disabled={savingIp || ip.trim() === getIp()}
+                            disabled={savingIp || (ip || '').trim() === getIp()}
                         >
                             {savingIp ? <Loader2 size={14} className="animate-spin" /> : 'Save'}
                         </Button>

@@ -37,7 +37,7 @@ export const siteConfig = {
         },
         description: "HIS",
         applicationName: "HIS",
-        author: [{ name: "Kqan", url: "https://github.com/Kqan1" }],
+        author: [{ name: "Kqan", url: "https://github.com/Kqan1" }, { name: "Ahmet Yavuz Düğmeci", url: "https://github.com/KSPRehber"}],
         keywords: [
             "",
         ],
@@ -59,7 +59,6 @@ export const ESP32_CONFIG = {
     // Default rows/cols (used as server-side fallback)
     rows: getModelById(DEFAULT_MODEL_ID).rows,
     cols: getModelById(DEFAULT_MODEL_ID).cols,
-    ip: process.env.NEXT_PUBLIC_ESP32_IP || "http://[IP_ADDRESS]",
     useProxy: process.env.NEXT_PUBLIC_USE_PROXY === 'true',
     password: process.env.NEXT_PUBLIC_ESP32_PASSWORD || '7580',
     apiUser: process.env.NEXT_PUBLIC_ESP32_USER || 'api_user',
