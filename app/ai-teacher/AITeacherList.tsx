@@ -4,7 +4,7 @@ import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Heading } from '@/components/ui/heading';
-import { BrainCircuit, PlusIcon, MessageSquare, Trash2, XIcon, TrashIcon } from 'lucide-react';
+import { BrainCircuit, PlusIcon, MessageSquare, Trash2, XIcon, TrashIcon, Ghost } from 'lucide-react';
 import { ChatSession } from '@/lib/ai-teacher-store';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
@@ -139,7 +139,7 @@ function AITeacherListContent() {
     );
 
     return (
-        <div className="space-y-6 min-h-screen">
+        <div className="space-y-6">
             <Heading 
                 title="AI Teacher Chats" 
                 description="Your previous conversations with the AI Teacher" 
@@ -154,9 +154,8 @@ function AITeacherListContent() {
                     <div className="h-20 w-full rounded-md bg-muted animate-pulse" />
                 </div>
             ) : sortedChats.length === 0 ? (
-                <div className="flex flex-col items-center justify-center gap-6 mt-16 text-muted-foreground">
-                    <MessageSquare size={100} className="opacity-20" />
-                    <p className="text-xl font-medium">No chats yet. Start a new conversation!</p>
+                <div className="flex flex-col items-center justify-center gap-6 text-muted-foreground">
+                    <div className="flex flex-col items-center justify-center gap-6 mt-16"><Ghost className="stroke-muted-foreground" size={100} /><p className="text-4xl font-bold text-center text-muted-foreground">There is nothing to see here</p></div>
                 </div>
             ) : (
                 <div className="flex flex-col gap-2">

@@ -112,7 +112,7 @@ export function NotesPageClient() {
             {toolbar}
             
             { notes.length <= 0 ? 
-                <div className="flex flex-col items-center justify-center gap-6 mt-16"><Ghost size={100} /><p className="text-4xl font-bold text-center">There is nothing to see here</p></div> : 
+                <div className="flex flex-col items-center justify-center gap-6 mt-16"><Ghost className="stroke-muted-foreground" size={100} /><p className="text-4xl font-bold text-center text-muted-foreground">There is nothing to see here</p></div> : 
                 <>
                     <NotesList notes={notes} deleteMode={deleteMode} />
                     
