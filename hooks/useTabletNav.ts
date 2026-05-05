@@ -163,6 +163,7 @@ export function useTabletNav() {
     const navActiveRef = useRef(false);
     const toggleComboRef = useRef({ spaceHeld: false, semiPressed: false });
     const prevKeysRef = useRef(0);
+    const suppressLetterUntilRef = useRef(0); // suppress port 82 letters after Space+combo
 
     const setNavActive = useCallback((active: boolean) => {
         navActiveRef.current = active;
@@ -171,11 +172,13 @@ export function useTabletNav() {
             announce('Navigation mode on');
         } else {
             document.body.removeAttribute('data-tablet-nav');
-            // Remove focus ring
-            if (document.activeElement instanceof HTMLElement) {
-                document.activeElement.blur();
+            // Keep focus alive so user can type into focused input
+            const el = document.activeElement;
+            if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
+                announce('Typing mode. Use keyboard to type.');
+            } else {
+                announce('Navigation mode off');
             }
-            announce('Navigation mode off');
         }
     }, []);
 
@@ -213,6 +216,41 @@ export function useTabletNav() {
                     setNavActive(!navActiveRef.current);
                     prevKeysRef.current = keys;
                     return; // Don't process other keys on toggle frame
+                }
+
+                // ── Space+K = Backspace (typing mode only) ──
+                if (!navActiveRef.current) {
+                    const kPressed = (keys & 32) && !(prevKeys & 32); // bit 5 = K
+                    if (kPressed) {
+                        const el = document.activeElement;
+                        if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
+                            const proto = el instanceof HTMLTextAreaElement
+                                ? HTMLTextAreaElement.prototype
+                                : HTMLInputElement.prototype;
+                            const nativeSetter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+                            if (nativeSetter) {
+                                const start = el.selectionStart ?? el.value.length;
+                                const end = el.selectionEnd ?? el.value.length;
+                                let newValue: string;
+                                let newCursor: number;
+                                if (start === end && start > 0) {
+                                    newValue = el.value.slice(0, start - 1) + el.value.slice(start);
+                                    newCursor = start - 1;
+                                } else if (start !== end) {
+                                    newValue = el.value.slice(0, start) + el.value.slice(end);
+                                    newCursor = start;
+                                } else {
+                                    prevKeysRef.current = keys;
+                                    return;
+                                }
+                                nativeSetter.call(el, newValue);
+                                el.selectionStart = el.selectionEnd = newCursor;
+                                el.dispatchEvent(new Event('input', { bubbles: true }));
+                                // Suppress the next letter from port 82 (ESP32 sends '?' for Space+K)
+                                suppressLetterUntilRef.current = Date.now() + 300;
+                            }
+                        }
+                    }
                 }
             }
 
@@ -272,6 +310,71 @@ export function useTabletNav() {
         };
 
         const unsub = service.onKeyMessage(handler);
-        return () => { unsub(); };
+
+        // ── Letter WS (port 82): type braille characters into focused inputs ──
+        const letterHandler = (msg: any) => {
+            if (msg.type !== 'letter' || !msg.letter) return;
+            // Only type when nav mode is OFF and an input is focused
+            if (navActiveRef.current) return;
+            // Suppress letters from Space+combo (e.g. Space+K sends '?' after backspace)
+            if (Date.now() < suppressLetterUntilRef.current) return;
+
+            const el = document.activeElement;
+            if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) return;
+
+            // Get the native value setter — this is required to trigger React's onChange
+            // React tracks values internally and ignores direct .value assignments
+            const proto = el instanceof HTMLTextAreaElement
+                ? HTMLTextAreaElement.prototype
+                : HTMLInputElement.prototype;
+            const nativeSetter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+            if (!nativeSetter) return;
+
+            let newValue = el.value;
+            let newCursor: number;
+
+            const start = el.selectionStart ?? el.value.length;
+            const end = el.selectionEnd ?? el.value.length;
+
+            if (msg.letter === '\b' || msg.letter === 'BACKSPACE') {
+                if (start === end && start > 0) {
+                    newValue = el.value.slice(0, start - 1) + el.value.slice(start);
+                    newCursor = start - 1;
+                } else if (start !== end) {
+                    newValue = el.value.slice(0, start) + el.value.slice(end);
+                    newCursor = start;
+                } else {
+                    return; // nothing to delete
+                }
+            } else if (msg.letter === ' ' || msg.letter === 'SPACE') {
+                newValue = el.value.slice(0, start) + ' ' + el.value.slice(end);
+                newCursor = start + 1;
+            } else if (msg.letter === '\n' || msg.letter === 'ENTER') {
+                if (el instanceof HTMLTextAreaElement) {
+                    newValue = el.value.slice(0, start) + '\n' + el.value.slice(end);
+                    newCursor = start + 1;
+                } else {
+                    return; // Enter on <input> — don't insert
+                }
+            } else {
+                // Normal character
+                newValue = el.value.slice(0, start) + msg.letter + el.value.slice(end);
+                newCursor = start + msg.letter.length;
+            }
+
+            // Set value via native setter to trigger React's change detection
+            nativeSetter.call(el, newValue);
+            el.selectionStart = el.selectionEnd = newCursor!;
+
+            // Dispatch input event to trigger React's onChange
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+        };
+
+        const unsubLetter = service.onLetterMessage(letterHandler);
+
+        return () => {
+            unsub();
+            unsubLetter();
+        };
     }, [setNavActive]);
 }

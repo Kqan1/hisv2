@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Heading } from '@/components/ui/heading';
 import { Input } from '@/components/ui/input';
-import { BrainCircuit, Send, Loader2, PlusIcon, ChevronLeft, ChevronRight, TrashIcon, Volume2, VolumeX, Image, Type as TypeIcon, Monitor } from 'lucide-react'; 
+import { BrainCircuit, Send, Loader2, PlusIcon, ChevronLeft, ChevronRight, TrashIcon, Volume2, VolumeX, Image, Type as TypeIcon, Monitor, AudioLines } from 'lucide-react'; 
 import Matrix from '@/components/ui/matrix'; 
 import { cn } from '@/lib/utils'; 
 import { useESP32 } from '@/hooks/useESP32';
@@ -79,6 +79,9 @@ export default function AITeacherChat({ params }: { params: Promise<{ id: string
     const { activeModel } = useModel();
     const messagesRef = useRef<Message[]>([]);
     messagesRef.current = messages;
+    const scrollContainerRef = useRef<HTMLDivElement>(null);
+    const messagesEndRef = useRef<HTMLDivElement>(null);
+    const prevMessageCountRef = useRef(0);
 
     // Track current page index per message (by message index)
     const [pageIndices, setPageIndices] = useState<Record<number, number>>({});
@@ -230,6 +233,29 @@ export default function AITeacherChat({ params }: { params: Promise<{ id: string
         }
     }, [activeModel.rows, activeModel.cols, activeModel.id, router, sendPageToHardware]);
 
+    // Auto-scroll to bottom & sound cue when a new assistant message arrives
+    useEffect(() => {
+        if (messages.length > prevMessageCountRef.current) {
+            const lastMsg = messages[messages.length - 1];
+            if (lastMsg?.role === 'assistant') {
+                // Scroll to bottom
+                setTimeout(() => {
+                    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+                }, 100);
+
+                // Sound cue via SpeechSynthesis
+                if ('speechSynthesis' in window) {
+                    window.speechSynthesis.cancel();
+                    const utterance = new SpeechSynthesisUtterance('Response ready');
+                    utterance.rate = 1.2;
+                    utterance.volume = 0.8;
+                    window.speechSynthesis.speak(utterance);
+                }
+            }
+        }
+        prevMessageCountRef.current = messages.length;
+    }, [messages]);
+
     // Keep the ref in sync so auto-submit can call sendToAI
     sendToAIRef.current = sendToAI;
 
@@ -337,7 +363,7 @@ export default function AITeacherChat({ params }: { params: Promise<{ id: string
             </div>
             
             <div className="flex-1 flex flex-col space-y-4 min-h-0 bg-muted/20 p-4 rounded-lg border border-dashed">
-                <div className="flex-1 overflow-y-auto space-y-6 pr-2">
+                <div ref={scrollContainerRef} className="flex-1 overflow-y-auto space-y-6 pr-2">
                     {messages.length === 0 && (
                         <div className="text-center text-muted-foreground mt-10">
                             <BrainCircuit className="size-12 mx-auto mb-2 opacity-50" />
@@ -420,11 +446,31 @@ export default function AITeacherChat({ params }: { params: Promise<{ id: string
                                                     size="sm"
                                                     className="h-7 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
                                                     onClick={() => speakText(msg.content)}
-                                                    title="Read aloud"
+                                                    aria-label="Read AI response aloud"
+                                                    title="Read AI response"
                                                 >
                                                     <Volume2 size={13} />
-                                                    Read
+                                                    Response
                                                 </Button>
+                                                {msg.pages?.some(p => p.type === 'braille' && p.text) && (
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        className="h-7 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+                                                        onClick={() => {
+                                                            const brailleText = msg.pages!
+                                                                .filter(p => p.type === 'braille' && p.text)
+                                                                .map(p => p.text)
+                                                                .join('. ');
+                                                            speakText(brailleText);
+                                                        }}
+                                                        aria-label="Read braille text aloud"
+                                                        title="Read braille text"
+                                                    >
+                                                        <AudioLines size={13} />
+                                                        Braille
+                                                    </Button>
+                                                )}
                                             </div>
                                         )}
                                         
@@ -524,6 +570,7 @@ export default function AITeacherChat({ params }: { params: Promise<{ id: string
                             </div>
                          </div>
                     )}
+                    <div ref={messagesEndRef} />
                 </div>
 
                 <form onSubmit={handleSubmit} className="flex items-center gap-2 pt-2 border-t">

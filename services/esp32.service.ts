@@ -30,6 +30,11 @@ class ESP32Service {
   private keyReconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private keyListeners = new Set<(msg: any) => void>();
 
+  // Letter WebSocket (port 82) — braille character output
+  private letterWs: WebSocket | null = null;
+  private letterReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private letterListeners = new Set<(msg: any) => void>();
+
   constructor(ip: string, useProxy = false) {
     this.ip = ip;
     this.useProxy = useProxy;
@@ -63,6 +68,7 @@ class ESP32Service {
     if (typeof window !== 'undefined') {
       this.startMonitoring();
       this.connectKeyboardWs();
+      this.connectLetterWs();
       // Sync IP to server-side proxy
       this.syncIpToServer();
     }
@@ -275,6 +281,51 @@ class ESP32Service {
   /** Unsubscribe from keyboard messages */
   offKeyMessage(listener: (msg: any) => void) {
     this.keyListeners.delete(listener);
+  }
+
+  // ========================================================================
+  // LETTER WEBSOCKET (PORT 82)
+  // ========================================================================
+
+  /** Connect to the braille letter WebSocket on port 82 */
+  private connectLetterWs() {
+    if (typeof window === 'undefined') return;
+    if (this.letterWs) return;
+
+    try {
+      const ws = new WebSocket(`ws://${this.ip}:82/`);
+
+      ws.onmessage = (e) => {
+        try {
+          const msg = JSON.parse(e.data);
+          for (const listener of this.letterListeners) {
+            listener(msg);
+          }
+        } catch { /* ignore */ }
+      };
+
+      ws.onclose = () => {
+        this.letterWs = null;
+        this.letterReconnectTimer = setTimeout(() => {
+          this.connectLetterWs();
+        }, 3000);
+      };
+
+      ws.onerror = () => { /* onclose will handle reconnect */ };
+
+      this.letterWs = ws;
+    } catch { /* ignore */ }
+  }
+
+  /** Subscribe to letter messages (braille character output) */
+  onLetterMessage(listener: (msg: any) => void) {
+    this.letterListeners.add(listener);
+    return () => { this.letterListeners.delete(listener); };
+  }
+
+  /** Unsubscribe from letter messages */
+  offLetterMessage(listener: (msg: any) => void) {
+    this.letterListeners.delete(listener);
   }
 
   // ========================================================================

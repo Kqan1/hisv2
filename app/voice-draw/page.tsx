@@ -162,13 +162,16 @@ function VoiceDrawListContent() {
                             return (
                                 <div
                                     key={chat.id}
+                                    tabIndex={0}
+                                    role="button"
+                                    aria-label={`Delete session: ${chat.title}`}
                                     className={cn(
                                         buttonVariants({ variant: "outline" }),
                                         "h-auto flex items-center p-3 gap-3 w-full text-left relative cursor-pointer group"
                                     )}
                                     onClick={(e) => handleDeleteChat(e, chat.id)}
                                 >
-                                    <div className="absolute inset-0 bg-destructive/20 border-2 border-destructive rounded-lg flex items-center justify-center z-10 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <div className="absolute inset-0 bg-destructive/20 border-2 border-destructive rounded-lg flex items-center justify-center z-10 opacity-0 group-hover:opacity-100 group-focus:opacity-100 transition-opacity">
                                         <div className="bg-destructive text-destructive-foreground rounded-full p-2">
                                             <Trash2 size={20} />
                                         </div>

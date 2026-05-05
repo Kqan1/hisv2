@@ -25,5 +25,7 @@ export function useESP32() {
     setLatching: service.setLatching.bind(service),
     onKeyMessage: service.onKeyMessage.bind(service),
     offKeyMessage: service.offKeyMessage.bind(service),
+    onLetterMessage: service.onLetterMessage.bind(service),
+    offLetterMessage: service.offLetterMessage.bind(service),
   }), [service]);
 }
