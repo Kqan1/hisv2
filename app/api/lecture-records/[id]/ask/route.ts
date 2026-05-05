@@ -2,6 +2,7 @@ import { GoogleGenAI } from "@google/genai";
 import { NextRequest, NextResponse } from "next/server";
 import { ESP32_CONFIG } from "@/lib/config";
 import { getLectureRecordById } from "@/lib/lecture-records-store";
+import { withRetry } from "@/lib/gemini-retry";
 
 export async function POST(
     request: NextRequest,
@@ -96,7 +97,7 @@ Based on this data, answer the user's question about this recording as helpfully
 
         const ai = new GoogleGenAI({ apiKey });
 
-        const result = await ai.models.generateContent({
+        const result = await withRetry(() => ai.models.generateContent({
             model: "gemini-flash-latest",
             config: {
                 temperature: 0.5,
@@ -108,7 +109,7 @@ Based on this data, answer the user's question about this recording as helpfully
                     parts: [{ text: question.trim() }],
                 },
             ],
-        });
+        }), 'Ask AI');
 
         let answer = "";
         if (result.candidates && result.candidates.length > 0) {

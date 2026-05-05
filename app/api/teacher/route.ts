@@ -2,6 +2,7 @@ import { GoogleGenAI, ThinkingLevel, Type } from "@google/genai";
 import { NextResponse } from "next/server";
 import { ESP32_CONFIG } from "@/lib/config";
 import { updateChat, createChat, Message, TeacherPage } from "@/lib/ai-teacher-store";
+import { withRetry } from "@/lib/gemini-retry";
 
 export async function POST(req: Request) {
     const apiKey = process.env.GEMINI_API_KEY;
@@ -143,7 +144,7 @@ Never exceed the ${cols}x${rows} boundary for graphic matrices. Always use -1 an
         const targetModel = 'gemini-flash-latest';
         console.log(`[DEBUG] Calling ai.models.generateContent with model: ${targetModel}`);
 
-        const result = await ai.models.generateContent({
+        const result = await withRetry(() => ai.models.generateContent({
             model: targetModel,
             config: config,
             contents: [
@@ -154,7 +155,7 @@ Never exceed the ${cols}x${rows} boundary for graphic matrices. Always use -1 an
                     ]
                 }
             ]
-        });
+        }), 'AI Teacher');
 
         console.log("[DEBUG] generateContent completed successfully.");
 

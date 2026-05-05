@@ -16,7 +16,7 @@ export function NewNoteForm() {
     const [matrices, setMatrices] = useState<number[][][]>([
         Array(activeModel.rows)
             .fill(0)
-            .map(() => Array(activeModel.cols).fill(0))
+            .map(() => Array(activeModel.cols).fill(-1))
     ])
     const [activePageIndex, setActivePageIndex] = useState(0)
 
@@ -24,7 +24,7 @@ export function NewNoteForm() {
         setMatrices([
             Array(activeModel.rows)
                 .fill(0)
-                .map(() => Array(activeModel.cols).fill(0))
+                .map(() => Array(activeModel.cols).fill(-1))
         ])
         setActivePageIndex(0)
     }, [activeModel.rows, activeModel.cols])
@@ -33,7 +33,7 @@ export function NewNoteForm() {
     const [error, setError] = useState<string | null>(null)
 
     const addPage = () => {
-        setMatrices([...matrices, Array(activeModel.rows).fill(0).map(() => Array(activeModel.cols).fill(0))])
+        setMatrices([...matrices, Array(activeModel.rows).fill(0).map(() => Array(activeModel.cols).fill(-1))])
         setActivePageIndex(matrices.length)
     }
 
