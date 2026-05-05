@@ -227,7 +227,7 @@ export default function LectureRecordDetailClient({
                 .catch((e) => console.error("Audio play failed", e));
         }
 
-        enableLoop(true).catch(() => {});
+        enableLoop(true);
 
         let frameIndex = currentFrameIndex;
         // If audio exists, sync to audio time.
@@ -321,7 +321,7 @@ export default function LectureRecordDetailClient({
             if (audioRef.current) {
                 audioRef.current.pause();
             }
-            enableLoop(false).catch(() => {});
+            enableLoop(false);
         };
     }, [isPlaying, record, audioUrl, setArray, enableLoop]); // Removed currentFrameIndex from deps to avoid restart loop
 
@@ -333,7 +333,7 @@ export default function LectureRecordDetailClient({
 
         if (frame?.pixelMatrix?.matrix && !isSending.current) {
             isSending.current = true;
-            enableLoop(true).catch(() => {});
+            enableLoop(true);
             setArray(frame.pixelMatrix.matrix as number[][], { cycle: false })
                 .catch((err) =>
                     console.warn("Failed to send initial frame:", err),
