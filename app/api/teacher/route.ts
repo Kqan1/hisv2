@@ -1,7 +1,7 @@
 import { GoogleGenAI, ThinkingLevel, Type } from "@google/genai";
 import { NextResponse } from "next/server";
 import { ESP32_CONFIG } from "@/lib/config";
-import { updateChat, createChat, Message } from "@/lib/ai-teacher-store";
+import { updateChat, createChat, Message, TeacherPage } from "@/lib/ai-teacher-store";
 
 export async function POST(req: Request) {
     const apiKey = process.env.GEMINI_API_KEY;
@@ -19,7 +19,6 @@ export async function POST(req: Request) {
         const rows = clientRows || ESP32_CONFIG.rows;
         const cols = clientCols || ESP32_CONFIG.cols;
         console.log("[DEBUG] Parsed request body (messages count):", messages?.length, "rows:", rows, "cols:", cols);
-        console.log("[DEBUG] Messages array:", JSON.stringify(messages, null, 2));
 
         const ai = new GoogleGenAI({ apiKey });
 
@@ -31,71 +30,109 @@ export async function POST(req: Request) {
             responseMimeType: 'application/json',
             responseSchema: {
                 type: Type.OBJECT,
-                required: ["matrix", "rows", "cols", "message"],
+                required: ["message", "pages"],
                 properties: {
-                    matrix: {
-                        type: Type.ARRAY,
-                        items: {
-                            type: Type.INTEGER,
-                        },
-                    },
-                    rows: {
-                        type: Type.INTEGER,
-                    },
-                    cols: {
-                        type: Type.INTEGER,
-                    },
                     message: {
                         type: Type.STRING,
+                        description: "A spoken explanation of what you produced. This is read aloud via TTS.",
+                    },
+                    pages: {
+                        type: Type.ARRAY,
+                        description: "Array of pages to display on the tactile tablet. Each page is one screen.",
+                        items: {
+                            type: Type.OBJECT,
+                            required: ["type", "label"],
+                            properties: {
+                                type: {
+                                    type: Type.STRING,
+                                    description: '"graphic" for hand-drawn matrix, "braille" for text rendered as 6-dot braille',
+                                },
+                                label: {
+                                    type: Type.STRING,
+                                    description: "Short label for this page (e.g., 'Triangle', 'Explanation page 1')",
+                                },
+                                matrix: {
+                                    type: Type.ARRAY,
+                                    items: { type: Type.INTEGER },
+                                    description: `For "graphic" pages ONLY: a flat array of ${rows * cols} integers (-1 or 1) representing the ${cols}x${rows} grid row by row.`,
+                                },
+                                text: {
+                                    type: Type.STRING,
+                                    description: 'For "braille" pages ONLY: the text content to render as 6-dot braille on the tablet.',
+                                },
+                            },
+                        },
                     },
                 },
             },
             systemInstruction: [
                 {
                     text: `### ROLE
-You are the "HIS AI Teacher," a specialized educational assistant for visually impaired students using the HISv2 tactile tablet. Your goal is to teach subjects through speech and tactile graphics.
+You are the "HIS AI Teacher," a specialized educational assistant for visually impaired students using the HISv2 tactile tablet. Your goal is to teach subjects through speech and tactile graphics/braille text.
 
 ### HARDWARE CONSTRAINTS
 - Device: ${cols}x${rows} Braille/Graphic display.
 - Resolution: ${rows} rows (0-${rows - 1}) and ${cols} columns (0-${cols - 1}).
-- Pixel values: Use 1 (raised/up) and -1 (lowered/down). Never use 0.
+- Pixel values for graphic pages: Use 1 (raised/up) and -1 (lowered/down). Never use 0.
 
-### OPERATIONAL GUIDELINES
-1. RESPONSE STRUCTURE: You must always respond in a structured format (JSON) containing two fields:
-   - "message": A warm, encouraging, and descriptive verbal explanation of the topic.
-   - "matrix": A flat array of ${rows * cols} integers (-1 or 1) representing the ${cols}x${rows} grid row by row.
+### OUTPUT FORMAT
+You produce TWO things per response:
+1. **"message"**: A warm, encouraging verbal explanation (read aloud via TTS). Do not use emojis.
+2. **"pages"**: An array of pages to display on the tablet. Each page is one screen.
 
-2. TEACHING STYLE: Use the Socratic method. Don't just give answers; guide the student. When describing a shape, explain where their fingers should move (e.g., "Feel the vertical line on the left side").
+### PAGE TYPES
 
-3. GRAPHIC RENDERING:
-   - Keep shapes simple and recognizable within ${cols}x${rows} pixels.
-   - For Braille characters, use the standard 2x3 or 2x4 dot patterns centered on the grid.
-   - For geometric shapes (circles, triangles, squares), ensure they are scaled to fit within [0-${cols - 1}, 0-${rows - 1}].
-   - Use 1 for raised pixels (the shape) and -1 for lowered pixels (the background).
+**"graphic"** — A hand-drawn pixel matrix for shapes, diagrams, geometric figures, charts.
+- Provide a "matrix" field: a flat array of exactly ${rows * cols} integers using only -1 and 1.
+- Use 1 for raised pixels (the shape) and -1 for background.
+- DO NOT put text in graphic pages — they are purely visual.
+- Keep shapes simple and recognizable within the ${cols}x${rows} grid.
 
-4. LANGUAGE: Do not use emojis in the output.
+**"braille"** — Text content that will be automatically rendered as 6-dot braille on the tablet.
+- Provide a "text" field with the text to display.
+- The system will automatically paginate long text into multiple display pages.
+- Use this for explanations, descriptions, definitions, labels, etc.
 
-### EXAMPLE OUTPUT FORMAT
+### GUIDELINES
+- Separate geometry/shapes and text onto DIFFERENT pages.
+- For a question like "Draw a triangle and explain it":
+  1. Page 1: type="graphic", label="Triangle", matrix=[...triangle shape...]
+  2. Page 2: type="braille", label="Explanation", text="A triangle has three sides and three angles..."
+- For a purely text question like "What is gravity?":
+  1. Page 1: type="braille", label="Gravity", text="Gravity is a force that attracts..."
+- Use the Socratic method. Guide the student, describe where to feel shapes.
+- Every response must have at least one page.
+
+### EXAMPLE: Mixed response
 {
-  "message": "I have drawn a small square in the center of your tablet. It has four equal sides. Can you find the corners?",
-  "matrix": [
-      -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
-      -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
-      -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
-      -1, -1, -1, -1, -1,  1,  1,  1,  1, -1, -1, -1, -1, -1, -1,
-      -1, -1, -1, -1, -1,  1, -1, -1,  1, -1, -1, -1, -1, -1, -1,
-      -1, -1, -1, -1, -1,  1, -1, -1,  1, -1, -1, -1, -1, -1, -1,
-      -1, -1, -1, -1, -1,  1,  1,  1,  1, -1, -1, -1, -1, -1, -1,
-      -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
-      -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
-      -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1
-    ],
-    "rows": ${rows},
-    "cols": ${cols}
+  "message": "I have drawn a small square for you. Feel the four equal sides. On the next page, I explain what a square is.",
+  "pages": [
+    {
+      "type": "graphic",
+      "label": "Square",
+      "matrix": [
+        -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+        -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+        -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+        -1,-1,-1,-1,-1, 1, 1, 1, 1,-1,-1,-1,-1,-1,-1,
+        -1,-1,-1,-1,-1, 1,-1,-1, 1,-1,-1,-1,-1,-1,-1,
+        -1,-1,-1,-1,-1, 1,-1,-1, 1,-1,-1,-1,-1,-1,-1,
+        -1,-1,-1,-1,-1, 1, 1, 1, 1,-1,-1,-1,-1,-1,-1,
+        -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+        -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+        -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1
+      ]
+    },
+    {
+      "type": "braille",
+      "label": "What is a square?",
+      "text": "A square is a shape with four equal sides and four right angles. Each corner is 90 degrees."
+    }
+  ]
 }
 
 ### CRITICAL RESTRICTION
-Never exceed the ${cols}x${rows} boundary. If a shape is too complex, simplify it to its essential tactile features. Always use -1 and 1 only — never use 0.`,
+Never exceed the ${cols}x${rows} boundary for graphic matrices. Always use -1 and 1 only in matrices — never 0. For braille pages, just provide the text — the system handles rendering.`,
                 },
             ],
         };
@@ -125,28 +162,20 @@ Never exceed the ${cols}x${rows} boundary. If a shape is too complex, simplify i
 
         // Handle @google/genai SDK response structure
         if (result.candidates && result.candidates.length > 0) {
-            console.log("[DEBUG] Found candidates in result:", JSON.stringify(result.candidates, null, 2));
             const candidate = result.candidates[0];
-            if (candidate.content && candidate.content.parts && candidate.content.parts.length > 0) {
-                responseText = candidate.content.parts[0].text || "";
-            } else {
-                console.log("[DEBUG] Candidate exists but missing content/parts.");
+            if (candidate.content?.parts?.[0]?.text) {
+                responseText = candidate.content.parts[0].text;
             }
-        } else {
-            console.log("[DEBUG] No candidates found in raw result.");
         }
 
-        // Fallback or if text() method exists (some versions)
+        // Fallback
         if (!responseText && typeof (result as any).text === 'function') {
-            console.log("[DEBUG] Using fallback text() method.");
             responseText = (result as any).text();
         }
 
-        console.log("[DEBUG] Final Extracted Response Text:", responseText); // Debug log
+        console.log("[DEBUG] Final Extracted Response Text:", responseText.substring(0, 200));
 
         try {
-            console.log("[DEBUG] Attempting to parse response text as JSON...");
-
             // Clean markdown formatting if present
             let cleanedText = responseText;
             cleanedText = cleanedText.replace(/```json\n?/gi, '');
@@ -154,20 +183,58 @@ Never exceed the ${cols}x${rows} boundary. If a shape is too complex, simplify i
             cleanedText = cleanedText.trim();
 
             const jsonResponse = JSON.parse(cleanedText);
-            console.log("[DEBUG] JSON Parse successful!", JSON.stringify(jsonResponse).substring(0, 50) + "...");
+            console.log("[DEBUG] JSON Parse successful!");
+
+            // Process pages into stored format
+            const storedPages: TeacherPage[] = [];
+            const aiPages = jsonResponse.pages || [];
+
+            for (const page of aiPages) {
+                if (page.type === 'graphic' && page.matrix) {
+                    // Convert flat array to 2D matrix
+                    const matrix2D: number[][] = [];
+                    for (let i = 0; i < rows; i++) {
+                        const row = page.matrix.slice(i * cols, (i + 1) * cols);
+                        // Ensure correct length and values
+                        matrix2D.push(
+                            row.length === cols
+                                ? row.map((v: number) => (v === 1 ? 1 : -1))
+                                : Array(cols).fill(-1)
+                        );
+                    }
+                    storedPages.push({
+                        type: 'graphic',
+                        label: page.label || 'Graphic',
+                        matrix: matrix2D,
+                    });
+                } else if (page.type === 'braille' && page.text) {
+                    storedPages.push({
+                        type: 'braille',
+                        label: page.label || 'Text',
+                        text: page.text,
+                    });
+                }
+            }
+
+            // Fallback: if no valid pages, treat as a single braille page
+            if (storedPages.length === 0 && jsonResponse.message) {
+                storedPages.push({
+                    type: 'braille',
+                    label: 'Response',
+                    text: jsonResponse.message,
+                });
+            }
 
             // Save chat history
             const assistantMessage: Message = {
                 role: 'assistant',
                 content: jsonResponse.message || "Here is the tactile feedback.",
-                matrix: jsonResponse.matrix ?
-                    Array.from({ length: jsonResponse.rows || rows }, (_, i) =>
-                        jsonResponse.matrix.slice(i * (jsonResponse.cols || cols), (i + 1) * (jsonResponse.cols || cols))
-                    ) : undefined,
-                rows: jsonResponse.rows || rows,
-                cols: jsonResponse.cols || cols,
+                pages: storedPages,
+                rows,
+                cols,
                 timestamp: new Date().toISOString()
             };
+
             let finalChatId = chatId;
             if (!finalChatId || finalChatId === 'new') {
                 const newChat = await createChat(`Chat ${new Date().toLocaleString()}`, [], deviceModelId);
@@ -175,16 +242,27 @@ Never exceed the ${cols}x${rows} boundary. If a shape is too complex, simplify i
             }
             await updateChat(finalChatId, [...messages, assistantMessage]);
 
-            return NextResponse.json({ ...jsonResponse, chatId: finalChatId });
+            return NextResponse.json({
+                message: jsonResponse.message,
+                pages: storedPages,
+                rows,
+                cols,
+                chatId: finalChatId,
+            });
         } catch (e) {
             console.error("[DEBUG] Failed to parse JSON!", "Raw text:", responseText, "Error:", e);
 
-            const fallbackResponse = { message: responseText, matrix: [], rows: 0, cols: 0 };
+            const fallbackResponse = {
+                message: responseText,
+                pages: [{ type: 'braille' as const, label: 'Response', text: responseText }],
+                rows,
+                cols,
+            };
 
-            // Save chat history for fallback
             const assistantMessage: Message = {
                 role: 'assistant',
                 content: fallbackResponse.message,
+                pages: fallbackResponse.pages,
                 timestamp: new Date().toISOString()
             };
 
@@ -200,7 +278,6 @@ Never exceed the ${cols}x${rows} boundary. If a shape is too complex, simplify i
 
     } catch (error) {
         console.error("[DEBUG] Error caught in AI Teacher API:", error);
-        console.error("[DEBUG] Full Error Details:", JSON.stringify(error, Object.getOwnPropertyNames(error)));
         return NextResponse.json(
             { error: "Failed to generate response", details: (error as Error).message },
             { status: 500 }

@@ -22,15 +22,15 @@ export async function GET(
             signal: AbortSignal.timeout(3000),
         });
 
-    const contentType = response.headers.get('content-type');
-    
-    if (contentType?.includes('application/json')) {
-        const data = await response.json();
-        return NextResponse.json(data);
-    }
-    
-    const text = await response.text();
-    return new NextResponse(text, { status: response.status });
+        const contentType = response.headers.get('content-type');
+
+        if (contentType?.includes('application/json')) {
+            const data = await response.json();
+            return NextResponse.json(data);
+        }
+
+        const text = await response.text();
+        return new NextResponse(text, { status: response.status });
     } catch {
         return NextResponse.json(
             { error: 'ESP32 bağlantı hatası' },
@@ -59,26 +59,26 @@ export async function POST(
             body = await request.text();
         }
 
-    const response = await fetch(`${getBaseUrl()}/${path}`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': contentType || 'application/x-www-form-urlencoded',
-        },
-        body: contentType?.includes('application/json') 
-            ? JSON.stringify(body) 
-            : body,
-        signal: AbortSignal.timeout(3000),
-    });
+        const response = await fetch(`${getBaseUrl()}/${path}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': contentType || 'application/x-www-form-urlencoded',
+            },
+            body: contentType?.includes('application/json')
+                ? JSON.stringify(body)
+                : body,
+            signal: AbortSignal.timeout(8000),
+        });
 
-    const responseContentType = response.headers.get('content-type');
-    
-    if (responseContentType?.includes('application/json')) {
-        const data = await response.json();
-        return NextResponse.json(data);
-    }
-    
-    const text = await response.text();
-    return new NextResponse(text, { status: response.status });
+        const responseContentType = response.headers.get('content-type');
+
+        if (responseContentType?.includes('application/json')) {
+            const data = await response.json();
+            return NextResponse.json(data);
+        }
+
+        const text = await response.text();
+        return new NextResponse(text, { status: response.status });
     } catch {
         return NextResponse.json(
             { error: 'ESP32 bağlantı hatası' },
@@ -104,7 +104,7 @@ export async function HEAD(
             signal: AbortSignal.timeout(2000),
         });
 
-    return new NextResponse(null, { status: response.status });
+        return new NextResponse(null, { status: response.status });
     } catch {
         return new NextResponse(null, { status: 503 });
     }

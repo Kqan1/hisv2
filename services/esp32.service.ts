@@ -53,21 +53,36 @@ class ESP32Service {
     this.baseUrl = useProxy 
       ? '/api/esp32'
       : `http://${this.ip}`;
+
+    // Auto-start WebSocket monitoring on client
+    if (typeof window !== 'undefined') {
+      this.startMonitoring();
+      // Sync IP to server-side proxy
+      this.syncIpToServer();
+    }
+  }
+
+  /** Push the current IP to the server-side proxy so /api/esp32/* routes use the right address */
+  private syncIpToServer() {
+    fetch('/api/esp32/ip', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ip: this.ip }),
+    }).catch(() => {});
   }
 
   setIp(ip: string) {
     this.ip = ip;
     if (typeof window !== 'undefined') {
       localStorage.setItem('esp32_ip', ip);
+      this.syncIpToServer();
     }
     if (!this.useProxy) {
       this.baseUrl = `http://${ip}`;
     }
-    // Restart monitoring with the new IP
+    // Reconnect WebSocket to new IP
     if (this.monitoring) {
-      this.stopMonitoring();
-      this.setState('checking');
-      this.startMonitoring();
+      this.forceReconnect();
     }
   }
 
@@ -164,7 +179,7 @@ class ESP32Service {
     }
   }
 
-  /** Start monitoring via status WebSocket (replaces HTTP health check polling) */
+  /** Start monitoring via status WebSocket — called once automatically in constructor */
   startMonitoring() {
     if (this.monitoring) return;
     this.monitoring = true;
@@ -180,21 +195,24 @@ class ESP32Service {
     }, 3000);
   }
 
+  /** Safe no-op — WebSocket stays alive for the app lifecycle. Hooks can call this without breaking anything. */
   stopMonitoring() {
-    this.monitoring = false;
+    // Intentional no-op: WebSocket is managed at the service singleton level,
+    // not per-component. Use forceReconnect() or setIp() to restart.
+  }
 
+  /** Force-disconnect and reconnect the status WebSocket (used by setIp) */
+  private forceReconnect() {
     if (this.statusReconnectTimer) {
       clearTimeout(this.statusReconnectTimer);
       this.statusReconnectTimer = null;
-    }
-    if (this.healthTimer) {
-      clearInterval(this.healthTimer);
-      this.healthTimer = null;
     }
     if (this.statusWs) {
       this.statusWs.close();
       this.statusWs = null;
     }
+    this.setState('checking');
+    this.connectStatusWs();
   }
 
   // ========================================================================
@@ -219,7 +237,6 @@ class ESP32Service {
       });
 
       if (response.ok) {
-        this.setState('connected');
         const contentType = response.headers.get('content-type');
         if (contentType?.includes('application/json')) {
           return response.json();
@@ -229,7 +246,7 @@ class ESP32Service {
 
       throw new Error(`HTTP ${response.status}`);
     } catch (error) {
-      this.setState('disconnected');
+      // Don't change connection state here — WebSocket is the source of truth
       throw error;
     }
   }

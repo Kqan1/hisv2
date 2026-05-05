@@ -4,10 +4,18 @@ import { v4 as uuidv4 } from 'uuid';
 
 const STORE_DIR = path.join(process.cwd(), "data", "ai-teacher");
 
+export interface TeacherPage {
+    type: 'graphic' | 'braille';
+    label: string;
+    matrix?: number[][];       // for graphic pages (2D, pre-rendered)
+    text?: string;             // for braille pages (raw text, client renders)
+}
+
 export interface Message {
     role: 'user' | 'assistant';
     content: string;
-    matrix?: number[][];
+    pages?: TeacherPage[];     // multi-page output (new format)
+    matrix?: number[][];       // LEGACY: single matrix for old chats
     rows?: number;
     cols?: number;
     timestamp: string | Date;
