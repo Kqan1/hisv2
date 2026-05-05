@@ -6,6 +6,7 @@ import { getConversions, createConversion, updateConversion, getUploadsDir } fro
 import type { PdfPage } from "@/lib/pdf-store";
 import { textToBraillePages } from "@/lib/braille";
 import { getModelById } from "@/lib/config";
+import { withRetry } from "@/lib/gemini-retry";
 
 export const dynamic = 'force-dynamic';
 
@@ -146,7 +147,7 @@ async function analyzeWithVision(
     // Convert PDF buffer to base64 for inline_data
     const pdfBase64 = pdfBuffer.toString('base64');
 
-    const result = await ai.models.generateContent({
+    const result = await withRetry(() => ai.models.generateContent({
         model: 'gemini-flash-latest',
         config: {
             temperature: 0.2,
@@ -231,7 +232,7 @@ Your job is to extract ALL content (text AND visuals) in document order and retu
                 }
             ]
         }]
-    });
+    }), 'PDF Conversion');
 
     try {
         let responseText = '';
