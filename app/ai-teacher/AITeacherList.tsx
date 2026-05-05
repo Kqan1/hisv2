@@ -32,6 +32,7 @@ function AITeacherToolbar({
                 size="icon-sm"
                 onClick={handleNewChat}
                 disabled={isLoading}
+                aria-label="New chat"
             >
                 <PlusIcon size={16} />
             </Button>
@@ -40,6 +41,7 @@ function AITeacherToolbar({
                     variant="outline"
                     size="icon-sm"
                     onClick={() => setDeleteMode(false)}
+                    aria-label="Cancel delete mode"
                 >
                     <XIcon size={16} />
                 </Button>
@@ -48,6 +50,7 @@ function AITeacherToolbar({
                     variant="destructive"
                     size="icon-sm"
                     onClick={() => setDeleteMode(true)}
+                    aria-label="Delete chats"
                 >
                     <TrashIcon size={16} />
                 </Button>

@@ -32,6 +32,7 @@ function PdfToolbar({
                 size="icon-sm"
                 onClick={handleUpload}
                 disabled={isUploading}
+                aria-label="Upload PDF"
             >
                 {isUploading ? <Loader2 size={16} className="animate-spin" /> : <PlusIcon size={16} />}
             </Button>
@@ -40,6 +41,7 @@ function PdfToolbar({
                     variant="outline"
                     size="icon-sm"
                     onClick={() => setDeleteMode(false)}
+                    aria-label="Cancel delete mode"
                 >
                     <XIcon size={16} />
                 </Button>
@@ -48,6 +50,7 @@ function PdfToolbar({
                     variant="destructive"
                     size="icon-sm"
                     onClick={() => setDeleteMode(true)}
+                    aria-label="Delete PDFs"
                 >
                     <TrashIcon size={16} />
                 </Button>

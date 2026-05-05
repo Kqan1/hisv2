@@ -30,6 +30,7 @@ function VoiceDrawToolbar({
                 size="icon-sm"
                 onClick={handleNewChat}
                 disabled={isLoading}
+                aria-label="New session"
             >
                 <PlusIcon size={16} />
             </Button>
@@ -38,6 +39,7 @@ function VoiceDrawToolbar({
                     variant="outline"
                     size="icon-sm"
                     onClick={() => setDeleteMode(false)}
+                    aria-label="Cancel delete mode"
                 >
                     <XIcon size={16} />
                 </Button>
@@ -46,6 +48,7 @@ function VoiceDrawToolbar({
                     variant="destructive"
                     size="icon-sm"
                     onClick={() => setDeleteMode(true)}
+                    aria-label="Delete sessions"
                 >
                     <TrashIcon size={16} />
                 </Button>

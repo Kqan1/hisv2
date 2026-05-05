@@ -285,40 +285,39 @@ export function NoteDetailClient({ params }: { params: Promise<{ id: string }> }
                     </div>
                 </div>
 
-                <div className="flex flex-wrap gap-2 shrink-0">
+                <div className="flex gap-1.5 shrink-0">
                     {!editing && (
                         <>
                             <Button 
-                                size="lg" 
+                                size="icon-sm" 
                                 variant={isDisplaying ? "secondary" : "default"} 
                                 onClick={handleSendToTablet}
+                                title={isDisplaying ? "Hide Display" : "Send to Display"}
                             >
-                                <MonitorUp className="mr-2 size-5" />
-                                {isDisplaying ? "Hide Display" : "Display"}
+                                <MonitorUp size={16} />
                             </Button>
                             <Button
-                                size="lg"
+                                size="icon-sm"
                                 variant={askAI.isTriggering ? "secondary" : "outline"}
                                 onClick={askAI.trigger}
                                 disabled={askAI.isTriggering}
-                                title="Ask AI Teacher about this note (Space+F)"
+                                title="Ask AI Teacher (Space+F)"
                             >
                                 {askAI.isTriggering ? (
-                                    <Loader2 className="mr-2 size-5 animate-spin" />
+                                    <Loader2 size={16} className="animate-spin" />
                                 ) : (
-                                    <BrainCircuit className="mr-2 size-5" />
+                                    <BrainCircuit size={16} />
                                 )}
-                                Ask AI
                             </Button>
                         </>
                     )}
                     {editing ? (
                         <>
-                            <Button size="lg" onClick={handleSave} disabled={saving}>
-                                {saving ? 'Saving…' : 'Save Changes'}
+                            <Button size="sm" onClick={handleSave} disabled={saving}>
+                                {saving ? 'Saving…' : 'Save'}
                             </Button>
                             <Button
-                                size="lg"
+                                size="icon-sm"
                                 variant="outline"
                                 onClick={() => {
                                     setEditing(false)
@@ -327,13 +326,14 @@ export function NoteDetailClient({ params }: { params: Promise<{ id: string }> }
                                     setActivePageIndex(0)
                                 }}
                                 disabled={saving}
+                                title="Cancel editing"
                             >
-                                Cancel
+                                ✕
                             </Button>
                         </>
                     ) : (
-                        <Button size="lg" variant="outline" onClick={() => setEditing(true)}>
-                            Edit Note
+                        <Button size="icon-sm" variant="outline" onClick={() => setEditing(true)} title="Edit Note">
+                            ✎
                         </Button>
                     )}
                 </div>
@@ -347,6 +347,7 @@ export function NoteDetailClient({ params }: { params: Promise<{ id: string }> }
                             size="icon-sm" 
                             onClick={() => setActivePageIndex(prev => Math.max(0, prev - 1))}
                             disabled={activePageIndex === 0}
+                            aria-label="Previous page"
                         >
                             <ChevronLeft className="size-5" />
                         </Button>
@@ -355,6 +356,7 @@ export function NoteDetailClient({ params }: { params: Promise<{ id: string }> }
                                 <button
                                     key={i}
                                     onClick={() => setActivePageIndex(i)}
+                                    aria-label={`Page ${i + 1}`}
                                     className={cn(
                                         "size-8 rounded-lg text-xs font-bold transition-all flex items-center justify-center shrink-0",
                                         activePageIndex === i 
@@ -371,6 +373,7 @@ export function NoteDetailClient({ params }: { params: Promise<{ id: string }> }
                             size="icon-sm" 
                             onClick={() => setActivePageIndex(prev => Math.min(pages.length - 1, prev + 1))}
                             disabled={activePageIndex === pages.length - 1}
+                            aria-label="Next page"
                         >
                             <ChevronRight className="size-5" />
                         </Button>
@@ -392,6 +395,7 @@ export function NoteDetailClient({ params }: { params: Promise<{ id: string }> }
                                 className="size-8 rounded-lg"
                                 onClick={() => deletePage(activePageIndex)}
                                 disabled={pages.length <= 1}
+                                aria-label="Delete this page"
                             >
                                 <Trash2 className="size-4" />
                             </Button>

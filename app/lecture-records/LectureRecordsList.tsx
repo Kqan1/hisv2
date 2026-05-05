@@ -36,6 +36,7 @@ export function LectureRecordsToolbar({
                     variant: "outline",
                     size: "icon-sm",
                 })}
+                aria-label="New lecture record"
             >
                 <PlusIcon size={16} />
             </Link>
@@ -44,6 +45,7 @@ export function LectureRecordsToolbar({
                     variant="outline"
                     size="icon-sm"
                     onClick={() => setDeleteMode(false)}
+                    aria-label="Cancel delete mode"
                 >
                     <XIcon size={16} />
                 </Button>
@@ -52,6 +54,7 @@ export function LectureRecordsToolbar({
                     variant="destructive"
                     size="icon-sm"
                     onClick={() => setDeleteMode(true)}
+                    aria-label="Delete records"
                 >
                     <TrashIcon size={16} />
                 </Button>

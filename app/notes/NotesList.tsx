@@ -60,7 +60,7 @@ export function NotesList({ notes, deleteMode }: NotesListProps) {
 export function NotesToolbar({ deleteMode, setDeleteMode }: { deleteMode: boolean; setDeleteMode: (value: boolean) => void }) {
     return (
         <div className="flex items-center gap-1 h-full">
-            <Link href="/notes/new" className={buttonVariants({ variant: "outline", size: "icon-sm" })}>
+            <Link href="/notes/new" className={buttonVariants({ variant: "outline", size: "icon-sm" })} aria-label="Create new note">
                 <PlusIcon size={16} />
             </Link>
             {deleteMode ? (
@@ -68,6 +68,7 @@ export function NotesToolbar({ deleteMode, setDeleteMode }: { deleteMode: boolea
                     variant="outline" 
                     size="icon-sm"
                     onClick={() => setDeleteMode(false)}
+                    aria-label="Cancel delete mode"
                 >
                     <XIcon size={16} />
                 </Button>
@@ -76,6 +77,7 @@ export function NotesToolbar({ deleteMode, setDeleteMode }: { deleteMode: boolea
                     variant="destructive" 
                     size="icon-sm"
                     onClick={() => setDeleteMode(true)}
+                    aria-label="Delete notes"
                 >
                     <TrashIcon size={16} />
                 </Button>

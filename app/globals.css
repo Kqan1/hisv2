@@ -131,3 +131,17 @@ body {
 .debug {
     border: 2px red solid;
 }
+
+/* ================================================================
+   TABLET NAVIGATION MODE — visible focus ring
+   Active when [data-tablet-nav] is set on <body> via Space+;
+   ================================================================ */
+[data-tablet-nav] *:focus {
+    outline: 2.5px solid white !important;
+    outline-offset: 2px;
+    box-shadow: 0 0 0 5px rgba(255, 255, 255, 0.2),
+                0 0 12px 2px rgba(255, 255, 255, 0.15);
+    border-radius: var(--radius-md);
+    z-index: 50;
+    position: relative;
+}
