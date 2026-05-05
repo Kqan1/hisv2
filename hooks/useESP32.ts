@@ -22,5 +22,10 @@ export function useESP32() {
     getIp: service.getIp.bind(service),
     onStatus: service.onStatus.bind(service),
     getLastStatus: service.getLastStatus.bind(service),
+    setLatching: service.setLatching.bind(service),
+    onKeyMessage: service.onKeyMessage.bind(service),
+    offKeyMessage: service.offKeyMessage.bind(service),
+    onLetterMessage: service.onLetterMessage.bind(service),
+    offLetterMessage: service.offLetterMessage.bind(service),
   }), [service]);
 }

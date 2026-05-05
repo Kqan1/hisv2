@@ -25,6 +25,7 @@ const NavItem = ({
     return (
         <Link
             href={item.href}
+            aria-label={item.label}
             className={`flex flex-col items-center gap-1 px-4 py-2 transition-colors ${
                 isActive
                     ? "text-zinc-900 dark:text-zinc-100"

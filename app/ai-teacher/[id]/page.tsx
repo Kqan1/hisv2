@@ -1,27 +1,71 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Heading } from '@/components/ui/heading';
 import { Input } from '@/components/ui/input';
-import { BrainCircuit, Send, Loader2, Trash2, PlusIcon, ChevronLeft, TrashIcon, Volume2, VolumeX } from 'lucide-react'; 
+import { BrainCircuit, Send, Loader2, PlusIcon, ChevronLeft, ChevronRight, TrashIcon, Volume2, VolumeX, Image, Type as TypeIcon, Monitor, AudioLines } from 'lucide-react'; 
 import Matrix from '@/components/ui/matrix'; 
 import { cn } from '@/lib/utils'; 
 import { useESP32 } from '@/hooks/useESP32';
 import { useModel } from '@/components/providers/model-context';
 import { toast } from 'sonner';
 import { useTTS } from '@/hooks/useTTS';
+import { textToBraillePages } from '@/lib/braille';
 
 import { use } from 'react';
 import { useRouter } from 'next/navigation';
 
+interface TeacherPage {
+    type: 'graphic' | 'braille';
+    label: string;
+    matrix?: number[][];
+    text?: string;
+}
+
 interface Message {
     role: 'user' | 'assistant';
     content: string;
-    matrix?: number[][];
+    pages?: TeacherPage[];
+    matrix?: number[][];  // LEGACY
     rows?: number;
     cols?: number;
     timestamp: string | Date;
+}
+
+/**
+ * Expand a message's pages into flat display pages.
+ * - graphic pages → one display page each
+ * - braille pages → N display pages via textToBraillePages()
+ */
+function expandPages(msg: Message, rows: number, cols: number): { matrix: number[][]; label: string; text?: string; type: string }[] {
+    const result: { matrix: number[][]; label: string; text?: string; type: string }[] = [];
+
+    // New multi-page format
+    if (msg.pages && msg.pages.length > 0) {
+        for (const page of msg.pages) {
+            if (page.type === 'graphic' && page.matrix) {
+                result.push({ matrix: page.matrix, label: page.label, type: 'graphic' });
+            } else if (page.type === 'braille' && page.text) {
+                const braillePages = textToBraillePages(page.text, rows, cols);
+                for (let i = 0; i < braillePages.length; i++) {
+                    result.push({
+                        matrix: braillePages[i],
+                        label: braillePages.length > 1 ? `${page.label} (${i + 1}/${braillePages.length})` : page.label,
+                        text: page.text,
+                        type: 'braille',
+                    });
+                }
+            }
+        }
+    }
+
+    // LEGACY: single matrix field
+    if (result.length === 0 && msg.matrix && msg.matrix.length > 0) {
+        result.push({ matrix: msg.matrix, label: 'Display', type: 'graphic' });
+    }
+
+    return result;
 }
 
 export default function AITeacherChat({ params }: { params: Promise<{ id: string }> }) {
@@ -35,6 +79,12 @@ export default function AITeacherChat({ params }: { params: Promise<{ id: string
     const { activeModel } = useModel();
     const messagesRef = useRef<Message[]>([]);
     messagesRef.current = messages;
+    const scrollContainerRef = useRef<HTMLDivElement>(null);
+    const messagesEndRef = useRef<HTMLDivElement>(null);
+    const prevMessageCountRef = useRef(0);
+
+    // Track current page index per message (by message index)
+    const [pageIndices, setPageIndices] = useState<Record<number, number>>({});
 
     // TTS: reads the latest assistant message via tablet keyboard Space+A
     const tts = useTTS({
@@ -43,8 +93,31 @@ export default function AITeacherChat({ params }: { params: Promise<{ id: string
             const lastAssistant = [...msgs].reverse().find(m => m.role === 'assistant');
             return lastAssistant?.content || null;
         }, []),
-        enableHardwareKeyboard: true, // auto-connect to tablet keyboard port 81
+        enableHardwareKeyboard: true,
     });
+
+    // Per-message TTS: speak a specific message's content
+    const speakText = useCallback(async (text: string) => {
+        if (tts.status === 'playing' || tts.status === 'loading') {
+            tts.stop();
+            return;
+        }
+        try {
+            const response = await fetch('/api/tts', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text: text.trim() }),
+            });
+            if (!response.ok) throw new Error('TTS failed');
+            const blob = await response.blob();
+            const url = URL.createObjectURL(blob);
+            const audio = new Audio(url);
+            audio.onended = () => URL.revokeObjectURL(url);
+            await audio.play();
+        } catch {
+            // silent fail
+        }
+    }, [tts]);
 
     const autoSubmittedRef = useRef(false);
     const sendToAIRef = useRef<((msgs: Message[], chatId: string) => Promise<void>) | null>(null);
@@ -64,38 +137,20 @@ export default function AITeacherChat({ params }: { params: Promise<{ id: string
                         setDeviceModelId(data.deviceModelId);
                     }
                     
-                    // Auto-load last matrix to hardware
-                    const lastMsg = [...data.messages].reverse().find((m: any) => m.matrix || (typeof m.content === 'string' && m.content.includes('"matrix"')));
-                    if (lastMsg) {
-                        let mData = lastMsg.matrix;
-                        if (!mData && typeof lastMsg.content === 'string' && lastMsg.content.includes('"matrix"')) {
-                            try {
-                                const parsed = JSON.parse(lastMsg.content);
-                                if (parsed.matrix && Array.isArray(parsed.matrix) && !Array.isArray(parsed.matrix[0])) {
-                                    const rows = parsed.rows || activeModel.rows;
-                                    const cols = parsed.cols || activeModel.cols;
-                                    mData = [];
-                                    for (let i = 0; i < rows; i++) {
-                                        mData.push(parsed.matrix.slice(i * cols, (i + 1) * cols));
-                                    }
-                                } else if (parsed.matrix) {
-                                    mData = parsed.matrix;
-                                }
-                            } catch(e) {}
-                        }
-                        
-                        if (mData && (!data.deviceModelId || data.deviceModelId === activeModel.id)) {
-                            setArray(mData);
+                    // Auto-load last assistant's first page to hardware
+                    const lastMsg = [...data.messages].reverse().find((m: Message) => m.pages || m.matrix);
+                    if (lastMsg && (!data.deviceModelId || data.deviceModelId === activeModel.id)) {
+                        const pages = expandPages(lastMsg, activeModel.rows, activeModel.cols);
+                        if (pages.length > 0) {
+                            setArray(pages[0].matrix);
                             enableLoop(true);
                         }
                     }
 
                     // Auto-submit: if last message is from user and no assistant response yet
-                    // (this happens when navigating from Ask AI shortcut)
                     const msgs = data.messages as Message[];
                     if (msgs.length > 0 && msgs[msgs.length - 1].role === 'user' && !autoSubmittedRef.current) {
                         autoSubmittedRef.current = true;
-                        // Defer to next tick so sendToAI ref is populated
                         setTimeout(() => {
                             sendToAIRef.current?.(msgs, id);
                         }, 100);
@@ -114,6 +169,16 @@ export default function AITeacherChat({ params }: { params: Promise<{ id: string
     }, [activeModel.rows, activeModel.cols, setArray, enableLoop]);
 
     const isModelMismatch = deviceModelId && deviceModelId !== activeModel.id;
+
+    // Debounced hardware send — prevents flooding ESP32 when spamming page nav
+    const sendTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const sendPageToHardware = useCallback((matrix: number[][]) => {
+        if (sendTimerRef.current) clearTimeout(sendTimerRef.current);
+        sendTimerRef.current = setTimeout(() => {
+            setArray(matrix);
+            enableLoop(true);
+        }, 150);
+    }, [setArray, enableLoop]);
 
     // Core function to send messages to the AI and process the response
     const sendToAI = useCallback(async (allMessages: Message[], chatId: string) => {
@@ -142,36 +207,54 @@ export default function AITeacherChat({ params }: { params: Promise<{ id: string
                 router.replace(`/ai-teacher/${data.chatId}`);
             }
 
-            // API returns 1D array. Need to convert to 2D for Matrix component.
-            let matrix2D: number[][] | undefined = undefined;
-            if (data.matrix && data.rows && data.cols) {
-                const rows = data.rows;
-                const cols = data.cols;
-                matrix2D = [];
-                for (let i = 0; i < rows; i++) {
-                    matrix2D.push(data.matrix.slice(i * cols, (i + 1) * cols));
-                }
-                setArray(matrix2D);
-                enableLoop(true);
-            }
-
             const assistantMessage: Message = {
                 role: 'assistant',
                 content: data.message, 
-                matrix: matrix2D,
+                pages: data.pages,
                 rows: data.rows,
                 cols: data.cols,
                 timestamp: new Date().toISOString()
             };
 
-            setMessages((prev) => [...prev, assistantMessage]);
+            setMessages((prev) => {
+                const newMessages = [...prev, assistantMessage];
+                // Send first page to hardware
+                const pages = expandPages(assistantMessage, activeModel.rows, activeModel.cols);
+                if (pages.length > 0) {
+                    sendPageToHardware(pages[0].matrix);
+                }
+                return newMessages;
+            });
         } catch (error) {
             console.error(error);
             toast.error('Failed to get response from AI Teacher');
         } finally {
             setIsLoading(false);
         }
-    }, [activeModel.rows, activeModel.cols, activeModel.id, router, setArray, enableLoop]);
+    }, [activeModel.rows, activeModel.cols, activeModel.id, router, sendPageToHardware]);
+
+    // Auto-scroll to bottom & sound cue when a new assistant message arrives
+    useEffect(() => {
+        if (messages.length > prevMessageCountRef.current) {
+            const lastMsg = messages[messages.length - 1];
+            if (lastMsg?.role === 'assistant') {
+                // Scroll to bottom
+                setTimeout(() => {
+                    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+                }, 100);
+
+                // Sound cue via SpeechSynthesis
+                if ('speechSynthesis' in window) {
+                    window.speechSynthesis.cancel();
+                    const utterance = new SpeechSynthesisUtterance('Response ready');
+                    utterance.rate = 1.2;
+                    utterance.volume = 0.8;
+                    window.speechSynthesis.speak(utterance);
+                }
+            }
+        }
+        prevMessageCountRef.current = messages.length;
+    }, [messages]);
 
     // Keep the ref in sync so auto-submit can call sendToAI
     sendToAIRef.current = sendToAI;
@@ -280,7 +363,7 @@ export default function AITeacherChat({ params }: { params: Promise<{ id: string
             </div>
             
             <div className="flex-1 flex flex-col space-y-4 min-h-0 bg-muted/20 p-4 rounded-lg border border-dashed">
-                <div className="flex-1 overflow-y-auto space-y-6 pr-2">
+                <div ref={scrollContainerRef} className="flex-1 overflow-y-auto space-y-6 pr-2">
                     {messages.length === 0 && (
                         <div className="text-center text-muted-foreground mt-10">
                             <BrainCircuit className="size-12 mx-auto mb-2 opacity-50" />
@@ -288,7 +371,7 @@ export default function AITeacherChat({ params }: { params: Promise<{ id: string
                         </div>
                     )}
                     
-                    {messages.map((rawMsg, index) => {
+                    {messages.map((rawMsg, msgIndex) => {
                         let msg = { ...rawMsg };
                         // Auto-heal corrupted JSON strings in old messages
                         if (typeof msg.content === 'string' && msg.content.trim().startsWith('{') && msg.content.includes('"matrix"')) {
@@ -296,29 +379,29 @@ export default function AITeacherChat({ params }: { params: Promise<{ id: string
                                 const parsed = JSON.parse(msg.content);
                                 if (parsed.matrix && parsed.message) {
                                     msg.content = parsed.message;
-                                    // Convert 1D to 2D if needed
                                     if (Array.isArray(parsed.matrix) && !Array.isArray(parsed.matrix[0])) {
-                                        const rows = parsed.rows || activeModel.rows;
-                                        const cols = parsed.cols || activeModel.cols;
+                                        const r = parsed.rows || activeModel.rows;
+                                        const c = parsed.cols || activeModel.cols;
                                         const matrix2D = [];
-                                        for (let i = 0; i < rows; i++) {
-                                            matrix2D.push(parsed.matrix.slice(i * cols, (i + 1) * cols));
+                                        for (let i = 0; i < r; i++) {
+                                            matrix2D.push(parsed.matrix.slice(i * c, (i + 1) * c));
                                         }
                                         msg.matrix = matrix2D;
                                     } else {
                                         msg.matrix = parsed.matrix;
                                     }
                                 }
-                            } catch (e) {
-                                // Ignore parse errors for healing
-                            }
+                            } catch (e) { /* ignore */ }
                         }
 
+                        // Expand pages for this message
+                        const displayPages = expandPages(msg, activeModel.rows, activeModel.cols);
+                        const currentPageIdx = pageIndices[msgIndex] || 0;
+                        const currentPage = displayPages[currentPageIdx];
+                        const hasPages = displayPages.length > 0;
+
                         return (
-                            <div
-                                key={index}
-                                className="flex flex-col gap-1"
-                            >
+                            <div key={msgIndex} className="flex flex-col gap-1">
                                 <div className={cn(
                                     "flex items-center gap-2 text-xs text-muted-foreground",
                                     msg.role === 'user' ? "flex-row-reverse" : "flex-row"
@@ -342,17 +425,132 @@ export default function AITeacherChat({ params }: { params: Promise<{ id: string
                                             : "bg-card border shadow-sm"
                                     )}>
                                         <p className="mb-2 whitespace-pre-wrap">{msg.content}</p>
-                                        {msg.matrix && msg.matrix.length > 0 && (
-                                            <div className="mt-2 bg-muted/10 p-2 rounded overflow-x-auto"> 
-                                                <div className="min-w-[200px] max-w-full pointer-events-none">
-                                                    <Matrix 
-                                                        initialData={msg.matrix}
-                                                        rows={activeModel.rows} 
-                                                        cols={activeModel.cols}
-                                                        editable={false}
-                                                        disabled={true}
-                                                    />
+
+                                        {/* Action buttons for assistant messages */}
+                                        {msg.role === 'assistant' && (
+                                            <div className="flex items-center gap-1 mb-2">
+                                                {hasPages && currentPage && (
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        className="h-7 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+                                                        onClick={() => sendPageToHardware(currentPage.matrix)}
+                                                        title="Send to display"
+                                                    >
+                                                        <Monitor size={13} />
+                                                        Display
+                                                    </Button>
+                                                )}
+                                                <Button
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    className="h-7 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+                                                    onClick={() => speakText(msg.content)}
+                                                    aria-label="Read AI response aloud"
+                                                    title="Read AI response"
+                                                >
+                                                    <Volume2 size={13} />
+                                                    Response
+                                                </Button>
+                                                {msg.pages?.some(p => p.type === 'braille' && p.text) && (
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        className="h-7 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+                                                        onClick={() => {
+                                                            const brailleText = msg.pages!
+                                                                .filter(p => p.type === 'braille' && p.text)
+                                                                .map(p => p.text)
+                                                                .join('. ');
+                                                            speakText(brailleText);
+                                                        }}
+                                                        aria-label="Read braille text aloud"
+                                                        title="Read braille text"
+                                                    >
+                                                        <AudioLines size={13} />
+                                                        Braille
+                                                    </Button>
+                                                )}
+                                            </div>
+                                        )}
+                                        
+                                        {/* Multi-page display */}
+                                        {hasPages && currentPage && (
+                                            <div className="mt-2 space-y-2">
+                                                {/* Page navigation */}
+                                                {displayPages.length > 1 && (
+                                                    <div className="flex items-center justify-between gap-2">
+                                                        <Button
+                                                            variant="outline"
+                                                            size="icon-sm"
+                                                            disabled={currentPageIdx === 0}
+                                                            onClick={() => {
+                                                                const newIdx = currentPageIdx - 1;
+                                                                setPageIndices(prev => ({ ...prev, [msgIndex]: newIdx }));
+                                                                sendPageToHardware(displayPages[newIdx].matrix);
+                                                            }}
+                                                        >
+                                                            <ChevronLeft size={14} />
+                                                        </Button>
+                                                        
+                                                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                                                            {currentPage.type === 'graphic' ? (
+                                                                <Image size={12} />
+                                                            ) : (
+                                                                <TypeIcon size={12} />
+                                                            )}
+                                                            <span className="font-medium">{currentPage.label}</span>
+                                                            <span className="text-muted-foreground/60">
+                                                                {currentPageIdx + 1}/{displayPages.length}
+                                                            </span>
+                                                        </div>
+
+                                                        <Button
+                                                            variant="outline"
+                                                            size="icon-sm"
+                                                            disabled={currentPageIdx === displayPages.length - 1}
+                                                            onClick={() => {
+                                                                const newIdx = currentPageIdx + 1;
+                                                                setPageIndices(prev => ({ ...prev, [msgIndex]: newIdx }));
+                                                                sendPageToHardware(displayPages[newIdx].matrix);
+                                                            }}
+                                                        >
+                                                            <ChevronRight size={14} />
+                                                        </Button>
+                                                    </div>
+                                                )}
+
+                                                {/* Single page label */}
+                                                {displayPages.length === 1 && (
+                                                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground justify-center">
+                                                        {currentPage.type === 'graphic' ? (
+                                                            <Image size={12} />
+                                                        ) : (
+                                                            <TypeIcon size={12} />
+                                                        )}
+                                                        <span>{currentPage.label}</span>
+                                                    </div>
+                                                )}
+
+                                                {/* Matrix preview */}
+                                                <div className="bg-muted/10 p-2 rounded overflow-x-auto">
+                                                    <div className="min-w-[200px] max-w-full pointer-events-none">
+                                                        <Matrix 
+                                                            initialData={currentPage.matrix}
+                                                            rows={activeModel.rows} 
+                                                            cols={activeModel.cols}
+                                                            editable={false}
+                                                            disabled={true}
+                                                        />
+                                                    </div>
                                                 </div>
+
+                                                {/* Braille text content */}
+                                                {currentPage.type === 'braille' && currentPage.text && (
+                                                    <div className="bg-muted/30 rounded px-2 py-1.5 text-xs text-muted-foreground italic border border-dashed">
+                                                        {currentPage.text}
+                                                    </div>
+                                                )}
                                             </div>
                                         )}
                                     </div>
@@ -372,6 +570,7 @@ export default function AITeacherChat({ params }: { params: Promise<{ id: string
                             </div>
                          </div>
                     )}
+                    <div ref={messagesEndRef} />
                 </div>
 
                 <form onSubmit={handleSubmit} className="flex items-center gap-2 pt-2 border-t">

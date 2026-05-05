@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ESP32_CONFIG } from '@/lib/config';
 import { toast } from 'sonner';
 import { useESP32 } from '@/hooks/useESP32';
 
@@ -13,16 +12,16 @@ interface AskAIContext {
     description?: string | null;
     /** Source page name (e.g., "PDF to Braille", "Notes", "Lecture Record") */
     source?: string;
+    /** Device model ID (e.g., "amc-1", "amc-3") — used for badge in chat list */
+    deviceModelId?: string;
 }
 
 interface UseAskAIOptions {
     /** Function that returns the current display context */
     getContext: () => AskAIContext;
     /**
-     * Whether to auto-connect to the tablet's hardware keyboard (WebSocket port 81)
-     * for Space+F combo detection.
-     * Set to false if the page already has its own port 81 WebSocket
-     * and will call `trigger()` directly from its own handler.
+     * Whether to listen for the hardware keyboard Space+F combo.
+     * Uses the singleton keyboard WebSocket from ESP32Service (port 81).
      */
     enableHardwareKeyboard?: boolean;
 }
@@ -30,7 +29,7 @@ interface UseAskAIOptions {
 /**
  * Hook for the "Ask AI Teacher" shortcut.
  * 
- * Activation combo (tablet hardware keyboard via WebSocket port 81):
+ * Activation combo (tablet hardware keyboard via singleton WebSocket port 81):
  *   1. Press and hold Space on the tablet
  *   2. Press F while Space is held
  *   3. Release F while Space is still held → triggers Ask AI
@@ -40,9 +39,7 @@ interface UseAskAIOptions {
 export function useAskAI({ getContext, enableHardwareKeyboard = true }: UseAskAIOptions) {
     const router = useRouter();
     const [isTriggering, setIsTriggering] = useState(false);
-    const [isConnected, setIsConnected] = useState(false);
-    const { getIp } = useESP32();
-    const wsRef = useRef<WebSocket | null>(null);
+    const { onKeyMessage, offKeyMessage } = useESP32();
     const triggerRef = useRef<() => void>(() => {});
 
     // Combo tracking for hardware keyboard
@@ -89,6 +86,7 @@ export function useAskAI({ getContext, enableHardwareKeyboard = true }: UseAskAI
                         content: messageContent,
                         timestamp: new Date().toISOString(),
                     }],
+                    deviceModelId: ctx.deviceModelId,
                 }),
             });
 
@@ -112,88 +110,50 @@ export function useAskAI({ getContext, enableHardwareKeyboard = true }: UseAskAI
     triggerRef.current = trigger;
 
     // ================================================================
-    // HARDWARE KEYBOARD: Auto-connect to WebSocket port 81
+    // HARDWARE KEYBOARD: Subscribe to singleton keyboard WebSocket
     // Detects Space+F combo from the tablet's physical keyboard
     // F key = bit 3 (index 3 in key array: A=0, S=1, D=2, F=3)
     // ================================================================
     useEffect(() => {
         if (!enableHardwareKeyboard) return;
 
-        const esp32Ip = getIp();
-        let ws: WebSocket | null = null;
-        let reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
+        const handler = (msg: any) => {
+            if (msg.type !== 'keystate') return;
 
-        function connect() {
-            try {
-                ws = new WebSocket(`ws://${esp32Ip}:81/`);
-                ws.onopen = () => setIsConnected(true);
-                ws.onclose = () => {
-                    setIsConnected(false);
-                    comboRef.current = { spaceHeld: false, fPressed: false };
-                    reconnectTimeout = setTimeout(connect, 3000);
-                };
-                ws.onerror = () => setIsConnected(false);
+            const spacebar = Boolean(msg.spacebar);
+            const fKey = Boolean(msg.keys & 8); // bit 3 = F key
+            const combo = comboRef.current;
 
-                ws.onmessage = (e) => {
-                    try {
-                        const msg = JSON.parse(e.data);
-                        if (msg.type !== 'keystate') return;
-
-                        const spacebar = Boolean(msg.spacebar);
-                        const fKey = Boolean(msg.keys & 8); // bit 3 = F key
-                        const combo = comboRef.current;
-
-                        if (spacebar && !combo.spaceHeld) {
-                            combo.spaceHeld = true;
-                            combo.fPressed = false;
-                        }
-
-                        if (!spacebar) {
-                            combo.spaceHeld = false;
-                            combo.fPressed = false;
-                            return;
-                        }
-
-                        // Space is held
-                        if (fKey && !combo.fPressed) {
-                            combo.fPressed = true;
-                        }
-
-                        if (!fKey && combo.fPressed && combo.spaceHeld) {
-                            // F released while Space is still held → TRIGGER
-                            combo.fPressed = false;
-                            triggerRef.current();
-                        }
-                    } catch { /* ignore */ }
-                };
-
-                wsRef.current = ws;
-            } catch {
-                setIsConnected(false);
+            if (spacebar && !combo.spaceHeld) {
+                combo.spaceHeld = true;
+                combo.fPressed = false;
             }
-        }
 
-        connect();
+            if (!spacebar) {
+                combo.spaceHeld = false;
+                combo.fPressed = false;
+                return;
+            }
 
-        return () => {
-            if (reconnectTimeout) clearTimeout(reconnectTimeout);
-            ws?.close();
-            wsRef.current = null;
-            setIsConnected(false);
+            // Space is held
+            if (fKey && !combo.fPressed) {
+                combo.fPressed = true;
+            }
+
+            if (!fKey && combo.fPressed && combo.spaceHeld) {
+                // F released while Space is still held → TRIGGER
+                combo.fPressed = false;
+                triggerRef.current();
+            }
         };
-    }, [enableHardwareKeyboard]);
 
-    // Cleanup on unmount
-    useEffect(() => {
-        return () => {
-            wsRef.current?.close();
-        };
-    }, []);
+        onKeyMessage(handler);
+        return () => { offKeyMessage(handler); };
+    }, [enableHardwareKeyboard, onKeyMessage, offKeyMessage]);
 
     return {
         trigger,
         isTriggering,
-        isConnected,
     };
 }
 

@@ -51,6 +51,7 @@ export const Heading: React.FC<HeadingProps> = ({
                     size="icon"
                     className="cursor-pointer"
                     onClick={handleBack}
+                    aria-label="Go back"
                 >
                     <ArrowLeft className="size-5" />
                 </Button>

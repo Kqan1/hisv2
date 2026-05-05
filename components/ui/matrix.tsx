@@ -130,11 +130,11 @@ export default function Matrix({
                         onValueChange={(v) => v && setTool(v as any)}
                         disabled={disabled}
                     >
-                        <ToggleGroupItem value="pencil" className="gap-2">
+                        <ToggleGroupItem value="pencil" className="gap-2" aria-label="Draw tool">
                             <PencilLine size={16} />
                             Draw
                         </ToggleGroupItem>
-                        <ToggleGroupItem value="eraser" className="gap-2">
+                        <ToggleGroupItem value="eraser" className="gap-2" aria-label="Erase tool">
                             <Eraser size={16} /> Erase
                         </ToggleGroupItem>
                     </ToggleGroup>
@@ -146,6 +146,7 @@ export default function Matrix({
                         onClick={handleReset}
                         disabled={disabled}
                         className="gap-2"
+                        aria-label="Clear matrix"
                     >
                         <Trash2 size={16} /> Clear
                     </Button>

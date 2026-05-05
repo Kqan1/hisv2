@@ -10,10 +10,8 @@ interface UseTTSOptions {
     /** Function that returns the current text to speak */
     getText: () => string | null;
     /**
-     * Whether to auto-connect to the tablet's hardware keyboard (WebSocket port 81)
-     * for Space+A combo detection.
-     * Set to false if the page already has its own port 81 WebSocket
-     * and will call `toggle()` directly from its own handler.
+     * Whether to listen for the hardware keyboard Space+A combo for TTS activation.
+     * Uses the singleton keyboard WebSocket from ESP32Service (port 81).
      */
     enableHardwareKeyboard?: boolean;
 }
@@ -21,18 +19,16 @@ interface UseTTSOptions {
 /**
  * Hook for Text-to-Speech via ElevenLabs.
  * 
- * Activation combo (tablet hardware keyboard via WebSocket port 81):
+ * Activation combo (tablet hardware keyboard via singleton WebSocket port 81):
  *   1. Press and hold Space on the tablet
  *   2. Press A while Space is held
  *   3. Release A while Space is still held → triggers TTS
  */
 export function useTTS({ getText, enableHardwareKeyboard = true }: UseTTSOptions) {
     const [status, setStatus] = useState<TTSStatus>('idle');
-    const [isConnected, setIsConnected] = useState(false);
     const audioRef = useRef<HTMLAudioElement | null>(null);
     const abortRef = useRef<AbortController | null>(null);
-    const { getIp } = useESP32();
-    const wsRef = useRef<WebSocket | null>(null);
+    const { onKeyMessage, offKeyMessage } = useESP32();
     const statusRef = useRef<TTSStatus>('idle');
 
     // Combo tracking state (for hardware keyboard)
@@ -41,7 +37,7 @@ export function useTTS({ getText, enableHardwareKeyboard = true }: UseTTSOptions
         aPressed: boolean;
     }>({ spaceHeld: false, aPressed: false });
 
-    // Use ref for toggle to avoid stale closure in WebSocket handler
+    // Use ref for toggle to avoid stale closure in listener
     const toggleRef = useRef<() => void>(() => {});
 
     // Speak text via TTS API
@@ -127,7 +123,6 @@ export function useTTS({ getText, enableHardwareKeyboard = true }: UseTTSOptions
     }, []);
 
     // Toggle: if playing/loading → stop. If idle → speak.
-    // Spam-safe: speak() already checks statusRef so rapid triggers are ignored.
     const toggle = useCallback(() => {
         if (statusRef.current === 'playing' || statusRef.current === 'loading') {
             stop();
@@ -140,76 +135,45 @@ export function useTTS({ getText, enableHardwareKeyboard = true }: UseTTSOptions
     toggleRef.current = toggle;
 
     // ================================================================
-    // HARDWARE KEYBOARD: Auto-connect to WebSocket port 81
+    // HARDWARE KEYBOARD: Subscribe to singleton keyboard WebSocket
     // Detects Space+A combo from the tablet's physical keyboard
     // ================================================================
     useEffect(() => {
         if (!enableHardwareKeyboard) return;
 
-        const esp32Ip = getIp();
-        let ws: WebSocket | null = null;
-        let reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
+        const handler = (msg: any) => {
+            if (msg.type !== 'keystate') return;
 
-        function connect() {
-            try {
-                ws = new WebSocket(`ws://${esp32Ip}:81/`);
-                ws.onopen = () => setIsConnected(true);
-                ws.onclose = () => {
-                    setIsConnected(false);
-                    hwComboRef.current = { spaceHeld: false, aPressed: false };
-                    // Auto-reconnect after 3 seconds
-                    reconnectTimeout = setTimeout(connect, 3000);
-                };
-                ws.onerror = () => setIsConnected(false);
+            const spacebar = Boolean(msg.spacebar);
+            const aKey = Boolean(msg.keys & 1); // bit 0 = A key
+            const combo = hwComboRef.current;
 
-                ws.onmessage = (e) => {
-                    try {
-                        const msg = JSON.parse(e.data);
-                        if (msg.type !== 'keystate') return;
-
-                        const spacebar = Boolean(msg.spacebar);
-                        const aKey = Boolean(msg.keys & 1); // bit 0 = A key
-                        const combo = hwComboRef.current;
-
-                        if (spacebar && !combo.spaceHeld) {
-                            combo.spaceHeld = true;
-                            combo.aPressed = false;
-                        }
-
-                        if (!spacebar) {
-                            combo.spaceHeld = false;
-                            combo.aPressed = false;
-                            return;
-                        }
-
-                        // Space is held
-                        if (aKey && !combo.aPressed) {
-                            combo.aPressed = true;
-                        }
-
-                        if (!aKey && combo.aPressed && combo.spaceHeld) {
-                            // A released while Space is still held → TRIGGER TTS
-                            combo.aPressed = false;
-                            toggleRef.current();
-                        }
-                    } catch { /* ignore */ }
-                };
-
-                wsRef.current = ws;
-            } catch {
-                setIsConnected(false);
+            if (spacebar && !combo.spaceHeld) {
+                combo.spaceHeld = true;
+                combo.aPressed = false;
             }
-        }
 
-        connect();
+            if (!spacebar) {
+                combo.spaceHeld = false;
+                combo.aPressed = false;
+                return;
+            }
 
-        return () => {
-            if (reconnectTimeout) clearTimeout(reconnectTimeout);
-            ws?.close();
-            wsRef.current = null;
-            setIsConnected(false);
+            // Space is held
+            if (aKey && !combo.aPressed) {
+                combo.aPressed = true;
+            }
+
+            if (!aKey && combo.aPressed && combo.spaceHeld) {
+                // A released while Space is still held → TRIGGER TTS
+                combo.aPressed = false;
+                toggleRef.current();
+            }
         };
-    }, [enableHardwareKeyboard]);
+
+        onKeyMessage(handler);
+        return () => { offKeyMessage(handler); };
+    }, [enableHardwareKeyboard, onKeyMessage, offKeyMessage]);
 
     // Cleanup on unmount
     useEffect(() => {
@@ -221,7 +185,6 @@ export function useTTS({ getText, enableHardwareKeyboard = true }: UseTTSOptions
 
     return {
         status,
-        isConnected,
         speak,
         stop,
         toggle,

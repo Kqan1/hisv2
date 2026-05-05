@@ -25,6 +25,16 @@ class ESP32Service {
   private healthTimer: ReturnType<typeof setInterval> | null = null;
   private monitoring = false;
 
+  // Keyboard WebSocket (port 81)
+  private keyWs: WebSocket | null = null;
+  private keyReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private keyListeners = new Set<(msg: any) => void>();
+
+  // Letter WebSocket (port 82) — braille character output
+  private letterWs: WebSocket | null = null;
+  private letterReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private letterListeners = new Set<(msg: any) => void>();
+
   constructor(ip: string, useProxy = false) {
     this.ip = ip;
     this.useProxy = useProxy;
@@ -53,21 +63,38 @@ class ESP32Service {
     this.baseUrl = useProxy 
       ? '/api/esp32'
       : `http://${this.ip}`;
+
+    // Auto-start WebSocket monitoring on client
+    if (typeof window !== 'undefined') {
+      this.startMonitoring();
+      this.connectKeyboardWs();
+      this.connectLetterWs();
+      // Sync IP to server-side proxy
+      this.syncIpToServer();
+    }
+  }
+
+  /** Push the current IP to the server-side proxy so /api/esp32/* routes use the right address */
+  private syncIpToServer() {
+    fetch('/api/esp32/ip', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ip: this.ip }),
+    }).catch(() => {});
   }
 
   setIp(ip: string) {
     this.ip = ip;
     if (typeof window !== 'undefined') {
       localStorage.setItem('esp32_ip', ip);
+      this.syncIpToServer();
     }
     if (!this.useProxy) {
       this.baseUrl = `http://${ip}`;
     }
-    // Restart monitoring with the new IP
+    // Reconnect WebSocket to new IP
     if (this.monitoring) {
-      this.stopMonitoring();
-      this.setState('checking');
-      this.startMonitoring();
+      this.forceReconnect();
     }
   }
 
@@ -164,7 +191,7 @@ class ESP32Service {
     }
   }
 
-  /** Start monitoring via status WebSocket (replaces HTTP health check polling) */
+  /** Start monitoring via status WebSocket — called once automatically in constructor */
   startMonitoring() {
     if (this.monitoring) return;
     this.monitoring = true;
@@ -180,21 +207,125 @@ class ESP32Service {
     }, 3000);
   }
 
+  /** Safe no-op — WebSocket stays alive for the app lifecycle. Hooks can call this without breaking anything. */
   stopMonitoring() {
-    this.monitoring = false;
+    // Intentional no-op: WebSocket is managed at the service singleton level,
+    // not per-component. Use forceReconnect() or setIp() to restart.
+  }
 
+  /** Force-disconnect and reconnect the status WebSocket (used by setIp) */
+  private forceReconnect() {
     if (this.statusReconnectTimer) {
       clearTimeout(this.statusReconnectTimer);
       this.statusReconnectTimer = null;
-    }
-    if (this.healthTimer) {
-      clearInterval(this.healthTimer);
-      this.healthTimer = null;
     }
     if (this.statusWs) {
       this.statusWs.close();
       this.statusWs = null;
     }
+    this.setState('checking');
+    this.connectStatusWs();
+
+    // Also reconnect keyboard WS to new IP
+    if (this.keyReconnectTimer) {
+      clearTimeout(this.keyReconnectTimer);
+      this.keyReconnectTimer = null;
+    }
+    if (this.keyWs) {
+      this.keyWs.close();
+      this.keyWs = null;
+    }
+    this.connectKeyboardWs();
+  }
+
+  // ========================================================================
+  // KEYBOARD WEBSOCKET (PORT 81)
+  // ========================================================================
+
+  /** Connect to the hardware keyboard WebSocket on port 81 */
+  private connectKeyboardWs() {
+    if (typeof window === 'undefined') return;
+    if (this.keyWs) return;
+
+    try {
+      const ws = new WebSocket(`ws://${this.ip}:81/`);
+
+      ws.onmessage = (e) => {
+        try {
+          const msg = JSON.parse(e.data);
+          for (const listener of this.keyListeners) {
+            listener(msg);
+          }
+        } catch { /* ignore */ }
+      };
+
+      ws.onclose = () => {
+        this.keyWs = null;
+        this.keyReconnectTimer = setTimeout(() => {
+          this.connectKeyboardWs();
+        }, 3000);
+      };
+
+      ws.onerror = () => { /* onclose will handle reconnect */ };
+
+      this.keyWs = ws;
+    } catch { /* ignore */ }
+  }
+
+  /** Subscribe to keyboard messages */
+  onKeyMessage(listener: (msg: any) => void) {
+    this.keyListeners.add(listener);
+    return () => { this.keyListeners.delete(listener); };
+  }
+
+  /** Unsubscribe from keyboard messages */
+  offKeyMessage(listener: (msg: any) => void) {
+    this.keyListeners.delete(listener);
+  }
+
+  // ========================================================================
+  // LETTER WEBSOCKET (PORT 82)
+  // ========================================================================
+
+  /** Connect to the braille letter WebSocket on port 82 */
+  private connectLetterWs() {
+    if (typeof window === 'undefined') return;
+    if (this.letterWs) return;
+
+    try {
+      const ws = new WebSocket(`ws://${this.ip}:82/`);
+
+      ws.onmessage = (e) => {
+        try {
+          const msg = JSON.parse(e.data);
+          for (const listener of this.letterListeners) {
+            listener(msg);
+          }
+        } catch { /* ignore */ }
+      };
+
+      ws.onclose = () => {
+        this.letterWs = null;
+        this.letterReconnectTimer = setTimeout(() => {
+          this.connectLetterWs();
+        }, 3000);
+      };
+
+      ws.onerror = () => { /* onclose will handle reconnect */ };
+
+      this.letterWs = ws;
+    } catch { /* ignore */ }
+  }
+
+  /** Subscribe to letter messages (braille character output) */
+  onLetterMessage(listener: (msg: any) => void) {
+    this.letterListeners.add(listener);
+    return () => { this.letterListeners.delete(listener); };
+  }
+
+  /** Unsubscribe from letter messages */
+  offLetterMessage(listener: (msg: any) => void) {
+    this.letterListeners.delete(listener);
   }
 
   // ========================================================================
@@ -219,7 +350,6 @@ class ESP32Service {
       });
 
       if (response.ok) {
-        this.setState('connected');
         const contentType = response.headers.get('content-type');
         if (contentType?.includes('application/json')) {
           return response.json();
@@ -229,7 +359,7 @@ class ESP32Service {
 
       throw new Error(`HTTP ${response.status}`);
     } catch (error) {
-      this.setState('disconnected');
+      // Don't change connection state here — WebSocket is the source of truth
       throw error;
     }
   }
@@ -311,6 +441,22 @@ class ESP32Service {
         enabled
       })
     }).catch(() => {});
+  }
+
+  async setLatching(options: {
+    enabled?: boolean;
+    refreshInterval?: number;
+    updateOnly?: boolean;
+    updateOnlyDir?: number;
+    fullRefreshOnUpdate?: boolean;
+  }): Promise<any> {
+    return this.request('/api/latching', {
+      method: 'POST',
+      body: JSON.stringify({
+        password: this.password,
+        ...options
+      })
+    });
   }
 
   async clear(): Promise<any> {

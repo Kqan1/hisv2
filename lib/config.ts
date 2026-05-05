@@ -37,14 +37,12 @@ export const siteConfig = {
         },
         description: "HIS",
         applicationName: "HIS",
-        author: [{ name: "Kqan", url: "https://github.com/Kqan1" }, { name: "Ahmet Yavuz Düğmeci", url: "https://github.com/KSPRehber"}],
+        author: [{ name: "Kqan", url: "https://github.com/Kqan1" }, { name: "Ahmet Yavuz Düğmeci", url: "https://github.com/KSPRehber" }],
         keywords: [
             "",
         ],
         icons: {
             icon: "/favicon.ico",
-            shortcut: "/favicon-16x16.png",
-            apple: "/apple-touch-icon.png",
         },
         category: "app",
         generator: "next.js"

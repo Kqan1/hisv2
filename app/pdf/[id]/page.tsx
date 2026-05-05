@@ -23,8 +23,8 @@ import {
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import type { PdfConversion } from '@/lib/pdf-store';
-import { useTTS, createTTSComboTracker } from '@/hooks/useTTS';
-import { useAskAI, createAskAIComboTracker } from '@/hooks/useAskAI';
+import { useTTS } from '@/hooks/useTTS';
+import { useAskAI } from '@/hooks/useAskAI';
 
 export default function PdfDetailPage({ params }: { params: Promise<{ id: string }> }) {
     const { id } = use(params);
@@ -45,8 +45,6 @@ export default function PdfDetailPage({ params }: { params: Promise<{ id: string
 
     const [activePageIndex, setActivePageIndex] = useState(0);
     const [isDisplaying, setIsDisplaying] = useState(false);
-    const [keyboardConnected, setKeyboardConnected] = useState(false);
-    const keyWsRef = useRef<WebSocket | null>(null);
     const prevKeysRef = useRef<number>(0);
     const conversionRef = useRef<PdfConversion | null>(null);
     const activePageIndexRef = useRef(0);
@@ -57,7 +55,7 @@ export default function PdfDetailPage({ params }: { params: Promise<{ id: string
         activePageIndexRef.current = activePageIndex;
     }, [conversion, activePageIndex]);
 
-    // TTS hook — hardware keyboard combo handled in our own WS handler below
+    // TTS hook — uses centralized keyboard WS
     const tts = useTTS({
         getText: useCallback(() => {
             const conv = conversionRef.current;
@@ -65,15 +63,10 @@ export default function PdfDetailPage({ params }: { params: Promise<{ id: string
             if (!conv || !conv.pages[idx]) return null;
             return conv.pages[idx].textContent || conv.pages[idx].label || null;
         }, []),
-        enableHardwareKeyboard: false, // we detect Space+A in our existing WS below
+        enableHardwareKeyboard: true,
     });
-    const ttsToggleRef = useRef(tts.toggle);
-    useEffect(() => {
-        ttsToggleRef.current = tts.toggle;
-    }, [tts.toggle]);
-    const ttsComboRef = useRef(createTTSComboTracker());
 
-    // Ask AI hook — hardware keyboard combo handled in our own WS handler below
+    // Ask AI hook — uses centralized keyboard WS
     const askAI = useAskAI({
         getContext: useCallback(() => {
             const conv = conversionRef.current;
@@ -83,15 +76,11 @@ export default function PdfDetailPage({ params }: { params: Promise<{ id: string
                 matrix: page?.matrix || null,
                 description: page?.textContent || page?.label || null,
                 source: 'PDF to Braille',
+                deviceModelId: activeModel.id,
             };
         }, []),
-        enableHardwareKeyboard: false,
+        enableHardwareKeyboard: true,
     });
-    const askAITriggerRef = useRef(askAI.trigger);
-    useEffect(() => {
-        askAITriggerRef.current = askAI.trigger;
-    }, [askAI.trigger]);
-    const askAIComboRef = useRef(createAskAIComboTracker());
 
     // Fetch conversion data
     useEffect(() => {
@@ -125,59 +114,38 @@ export default function PdfDetailPage({ params }: { params: Promise<{ id: string
         tts.stop();
     }, [activePageIndex]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    // Keyboard WebSocket for A/S navigation (port 81)
-    const connectKeyboard = useCallback(() => {
-        if (keyWsRef.current?.readyState === WebSocket.OPEN) return;
+    // Keyboard navigation via centralized WebSocket (A/S keys for prev/next page)
+    const { onKeyMessage, offKeyMessage } = useESP32();
+    useEffect(() => {
+        const handler = (msg: any) => {
+            if (msg.type !== 'keystate') return;
+            const keys = msg.keys as number;
+            const prevKeys = prevKeysRef.current;
+            const spacebar = Boolean(msg.spacebar);
 
-        const esp32Ip = getIp();
-        try {
-            const ws = new WebSocket(`ws://${esp32Ip}:81/`);
-            ws.onopen = () => setKeyboardConnected(true);
-            ws.onclose = () => setKeyboardConnected(false);
-            ws.onerror = () => setKeyboardConnected(false);
-            ws.onmessage = (e) => {
-                try {
-                    const msg = JSON.parse(e.data);
-                    if (msg.type === 'keystate') {
-                        const keys = msg.keys as number;
-                        const prevKeys = prevKeysRef.current;
-                        const spacebar = Boolean(msg.spacebar);
+            // A/S page navigation (only when Space is NOT held)
+            if (!spacebar) {
+                const aPressed = (keys & 1) && !(prevKeys & 1);
+                const sPressed = (keys & 2) && !(prevKeys & 2);
 
-                        // TTS combo detection: Space+A
-                        if (ttsComboRef.current.process(msg)) {
-                            ttsToggleRef.current();
-                        }
+                if (aPressed) {
+                    setActivePageIndex(prev => Math.max(0, prev - 1));
+                }
+                if (sPressed) {
+                    setActivePageIndex(prev => {
+                        const conv = conversionRef.current;
+                        if (!conv) return prev;
+                        return Math.min(conv.pages.length - 1, prev + 1);
+                    });
+                }
+            }
 
-                        // Ask AI combo detection: Space+F
-                        if (askAIComboRef.current.process(msg)) {
-                            askAITriggerRef.current();
-                        }
+            prevKeysRef.current = keys;
+        };
 
-                        // A/S page navigation (only when Space is NOT held)
-                        if (!spacebar) {
-                            const aPressed = (keys & 1) && !(prevKeys & 1);
-                            const sPressed = (keys & 2) && !(prevKeys & 2);
-
-                            if (aPressed) {
-                                setActivePageIndex(prev => Math.max(0, prev - 1));
-                            }
-                            if (sPressed) {
-                                setActivePageIndex(prev => {
-                                    if (!conversion) return prev;
-                                    return Math.min(conversion.pages.length - 1, prev + 1);
-                                });
-                            }
-                        }
-
-                        prevKeysRef.current = keys;
-                    }
-                } catch { /* ignore */ }
-            };
-            keyWsRef.current = ws;
-        } catch {
-            setKeyboardConnected(false);
-        }
-    }, [conversion, getIp]);
+        onKeyMessage(handler);
+        return () => { offKeyMessage(handler); };
+    }, [onKeyMessage, offKeyMessage]);
 
     // Also listen for browser keyboard A/S as fallback
     useEffect(() => {
@@ -195,13 +163,6 @@ export default function PdfDetailPage({ params }: { params: Promise<{ id: string
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [conversion]);
-
-    // Cleanup WebSocket on unmount
-    useEffect(() => {
-        return () => {
-            keyWsRef.current?.close();
-        };
-    }, []);
 
     // Auto-sync to ESP32 when display is toggled on
     useEffect(() => {
@@ -364,14 +325,12 @@ export default function PdfDetailPage({ params }: { params: Promise<{ id: string
                             <BrainCircuit size={16} />
                         )}
                     </Button>
-                    <Button
-                        size="icon-sm"
-                        variant={keyboardConnected ? "secondary" : "outline"}
-                        onClick={keyboardConnected ? () => { keyWsRef.current?.close(); } : connectKeyboard}
-                        title={keyboardConnected ? "Keyboard connected" : "Connect keyboard"}
+                    <div
+                        className="inline-flex items-center justify-center rounded-md size-8 bg-secondary border"
+                        title="Keyboard always connected"
                     >
                         <Keyboard size={16} />
-                    </Button>
+                    </div>
                 </div>
             </div>
 

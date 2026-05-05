@@ -36,6 +36,7 @@ export function LectureRecordsToolbar({
                     variant: "outline",
                     size: "icon-sm",
                 })}
+                aria-label="New lecture record"
             >
                 <PlusIcon size={16} />
             </Link>
@@ -44,6 +45,7 @@ export function LectureRecordsToolbar({
                     variant="outline"
                     size="icon-sm"
                     onClick={() => setDeleteMode(false)}
+                    aria-label="Cancel delete mode"
                 >
                     <XIcon size={16} />
                 </Button>
@@ -52,6 +54,7 @@ export function LectureRecordsToolbar({
                     variant="destructive"
                     size="icon-sm"
                     onClick={() => setDeleteMode(true)}
+                    aria-label="Delete records"
                 >
                     <TrashIcon size={16} />
                 </Button>
@@ -80,22 +83,21 @@ function LectureRecordCard({
     if (deleteMode) {
         return (
             <div
+                tabIndex={0}
+                role="button"
+                aria-label={`Delete record: ${RecordData.title}`}
                 className={cn(
                     buttonVariants({ variant: "outline" }),
-                    "size-full flex flex-col items-stretch p-3 text-left relative cursor-pointer",
+                    "size-full flex flex-col items-stretch p-3 text-left relative cursor-pointer group",
                     isDeleting && "opacity-50",
                 )}
-                onMouseEnter={() => setIsHovered(true)}
-                onMouseLeave={() => setIsHovered(false)}
                 onClick={onDelete}
             >
-                {isHovered && (
-                    <div className="absolute inset-0 bg-destructive/20 border-2 border-destructive rounded-lg flex items-center justify-center z-10">
-                        <div className="bg-destructive text-destructive-foreground rounded-full p-3">
-                            <TrashIcon size={24} />
-                        </div>
+                <div className="absolute inset-0 bg-destructive/20 border-2 border-destructive rounded-lg flex items-center justify-center z-10 opacity-0 group-hover:opacity-100 group-focus:opacity-100 transition-opacity">
+                    <div className="bg-destructive text-destructive-foreground rounded-full p-3">
+                        <TrashIcon size={24} />
                     </div>
-                )}
+                </div>
                 <div className="flex justify-between items-start w-full gap-2">
                     <div className="flex flex-col gap-1.5">
                         <h3 className="text-lg font-bold leading-none">
