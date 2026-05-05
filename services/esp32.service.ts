@@ -25,6 +25,11 @@ class ESP32Service {
   private healthTimer: ReturnType<typeof setInterval> | null = null;
   private monitoring = false;
 
+  // Keyboard WebSocket (port 81)
+  private keyWs: WebSocket | null = null;
+  private keyReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private keyListeners = new Set<(msg: any) => void>();
+
   constructor(ip: string, useProxy = false) {
     this.ip = ip;
     this.useProxy = useProxy;
@@ -57,6 +62,7 @@ class ESP32Service {
     // Auto-start WebSocket monitoring on client
     if (typeof window !== 'undefined') {
       this.startMonitoring();
+      this.connectKeyboardWs();
       // Sync IP to server-side proxy
       this.syncIpToServer();
     }
@@ -213,6 +219,62 @@ class ESP32Service {
     }
     this.setState('checking');
     this.connectStatusWs();
+
+    // Also reconnect keyboard WS to new IP
+    if (this.keyReconnectTimer) {
+      clearTimeout(this.keyReconnectTimer);
+      this.keyReconnectTimer = null;
+    }
+    if (this.keyWs) {
+      this.keyWs.close();
+      this.keyWs = null;
+    }
+    this.connectKeyboardWs();
+  }
+
+  // ========================================================================
+  // KEYBOARD WEBSOCKET (PORT 81)
+  // ========================================================================
+
+  /** Connect to the hardware keyboard WebSocket on port 81 */
+  private connectKeyboardWs() {
+    if (typeof window === 'undefined') return;
+    if (this.keyWs) return;
+
+    try {
+      const ws = new WebSocket(`ws://${this.ip}:81/`);
+
+      ws.onmessage = (e) => {
+        try {
+          const msg = JSON.parse(e.data);
+          for (const listener of this.keyListeners) {
+            listener(msg);
+          }
+        } catch { /* ignore */ }
+      };
+
+      ws.onclose = () => {
+        this.keyWs = null;
+        this.keyReconnectTimer = setTimeout(() => {
+          this.connectKeyboardWs();
+        }, 3000);
+      };
+
+      ws.onerror = () => { /* onclose will handle reconnect */ };
+
+      this.keyWs = ws;
+    } catch { /* ignore */ }
+  }
+
+  /** Subscribe to keyboard messages */
+  onKeyMessage(listener: (msg: any) => void) {
+    this.keyListeners.add(listener);
+    return () => { this.keyListeners.delete(listener); };
+  }
+
+  /** Unsubscribe from keyboard messages */
+  offKeyMessage(listener: (msg: any) => void) {
+    this.keyListeners.delete(listener);
   }
 
   // ========================================================================

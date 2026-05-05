@@ -27,50 +27,26 @@ type KeyState = {
 };
 
 function KeyboardDebug() {
-    const [keyWsStatus, setKeyWsStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
+    const [keyWsStatus] = useState<'connected'>('connected'); // Always-on via service
     const [letterWsStatus, setLetterWsStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
     const [keyState, setKeyState] = useState<KeyState>({ keys: 0, spacebar: false, dots: [0, 0, 0, 0, 0, 0, 0, 0] });
     const [letterLog, setLetterLog] = useState<string[]>([]);
     const [typedText, setTypedText] = useState('');
-    const keyWsRef = useRef<WebSocket | null>(null);
     const letterWsRef = useRef<WebSocket | null>(null);
 
-    const { getIp } = useESP32();
+    const { getIp, onKeyMessage, offKeyMessage } = useESP32();
     const esp32Ip = getIp();
 
-    const connectKeyWs = useCallback(() => {
-        if (keyWsRef.current?.readyState === WebSocket.OPEN) return;
-        setKeyWsStatus('connecting');
-        try {
-            const ws = new WebSocket(`ws://${esp32Ip}:81/`);
-            ws.onopen = () => {
-                console.log('Key WebSocket connected');
-                setKeyWsStatus('connected');
-            };
-            ws.onclose = () => {
-                console.log('Key WebSocket disconnected');
-                setKeyWsStatus('disconnected');
-            };
-            ws.onerror = (error) => {
-                console.error('Key WebSocket error:', error);
-                setKeyWsStatus('disconnected');
-            };
-            ws.onmessage = (e) => {
-                try {
-                    const msg = JSON.parse(e.data);
-                    console.log('Key WebSocket message:', msg);
-                    if (msg.type === 'keystate') {
-                        setKeyState({ keys: msg.keys, spacebar: msg.spacebar, dots: msg.dots });
-                    }
-                } catch (err) {
-                    console.error('Key WebSocket parse error:', err);
-                }
-            };
-            keyWsRef.current = ws;
-        } catch {
-            setKeyWsStatus('disconnected');
-        }
-    }, [esp32Ip]);
+    // Subscribe to centralized keyboard WebSocket (port 81)
+    useEffect(() => {
+        const handler = (msg: any) => {
+            if (msg.type === 'keystate') {
+                setKeyState({ keys: msg.keys, spacebar: msg.spacebar, dots: msg.dots });
+            }
+        };
+        onKeyMessage(handler);
+        return () => { offKeyMessage(handler); };
+    }, [onKeyMessage, offKeyMessage]);
 
     const connectLetterWs = useCallback(() => {
         if (letterWsRef.current?.readyState === WebSocket.OPEN) return;
@@ -110,7 +86,6 @@ function KeyboardDebug() {
 
     useEffect(() => {
         return () => {
-            keyWsRef.current?.close();
             letterWsRef.current?.close();
         };
     }, []);
@@ -133,15 +108,10 @@ function KeyboardDebug() {
 
             {/* WebSocket connections */}
             <div className="flex flex-wrap gap-2">
-                <Button
-                    size="sm"
-                    variant={keyWsStatus === 'connected' ? 'secondary' : 'outline'}
-                    onClick={keyWsStatus === 'connected' ? () => { keyWsRef.current?.close(); } : connectKeyWs}
-                    className="gap-2 text-xs"
-                >
+                <div className="flex items-center gap-2 text-xs px-3 py-1.5 border rounded-md bg-secondary">
                     <WsStatusDot status={keyWsStatus} />
-                    {keyWsStatus === 'connected' ? 'Keys: Connected' : 'Connect Keys (:81)'}
-                </Button>
+                    Keys: Always On (:81)
+                </div>
                 <Button
                     size="sm"
                     variant={letterWsStatus === 'connected' ? 'secondary' : 'outline'}
@@ -257,7 +227,6 @@ export default function Debug() {
         }
 
         const unsub = onStatus((status) => {
-            console.log("Real status from socket:", status.uptime);
             // Only update timing from device if user is NOT actively editing
             if (!timingUserEdit.current) {
                 setHoldTime(status.pixelOnTime);
@@ -269,7 +238,7 @@ export default function Debug() {
             setWifiRssi(status.wifiRssi);
         });
 
-        return unsub;
+        return () => { unsub(); };
     }, [onStatus, getLastStatus]);
 
     // Local uptime ticker to make it look smooth (1s increments)
