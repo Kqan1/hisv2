@@ -8,8 +8,11 @@ import { useESP32 } from '@/hooks/useESP32'
 import { cn } from '@/lib/utils'
 import { useModel } from '@/components/providers/model-context'
 import { toast } from 'sonner'
-import { TriangleAlertIcon, ChevronLeft, ChevronRight, Plus, Trash2, MonitorUp, BrainCircuit, Loader2 } from 'lucide-react'
+import { TriangleAlertIcon, ChevronLeft, ChevronRight, Plus, Trash2, MonitorUp, BrainCircuit, Loader2, Keyboard } from 'lucide-react'
 import { useAskAI } from '@/hooks/useAskAI'
+import { useBrailleKeyboard } from '@/hooks/useBrailleKeyboard'
+import { BrailleKeyboardState } from '@/components/ui/braille-keyboard-state'
+import { textToBraillePages } from '@/lib/braille'
 
 type NotePage = {
     id: string
@@ -53,6 +56,78 @@ export function NoteDetailClient({ params }: { params: Promise<{ id: string }> }
     pagesRef.current = pages
     activePageIndexRef.current = activePageIndex
     titleRef.current = title
+
+    const { typedText, setTypedText, keyState } = useBrailleKeyboard()
+    const isTypingUpdateRef = useRef(false)
+    const isManualEditRef = useRef(false)
+
+    useEffect(() => {
+        if (!editing) return;
+        if (!typedText) {
+            if (isManualEditRef.current) {
+                isManualEditRef.current = false;
+                return;
+            }
+            // User backspaced until empty
+            isTypingUpdateRef.current = true;
+            setPages(prevPages => {
+                const newPages = [...prevPages];
+                const startIdx = activePageIndexRef.current;
+                if (newPages[startIdx]) {
+                    newPages[startIdx] = {
+                        ...newPages[startIdx],
+                        matrix: Array(activeModel.rows).fill(0).map(() => Array(activeModel.cols).fill(-1)),
+                        updatedAt: new Date().toISOString()
+                    };
+                }
+                return newPages;
+            });
+            return;
+        }
+
+        const generatedMatrices = textToBraillePages(typedText, activeModel.rows, activeModel.cols);
+        if (generatedMatrices.length > 0) {
+            isTypingUpdateRef.current = true;
+            
+            setPages(prevPages => {
+                const newPages = [...prevPages];
+                const startIdx = activePageIndexRef.current;
+                
+                // Replace the active page with the first generated matrix
+                if (newPages[startIdx]) {
+                    newPages[startIdx] = {
+                        ...newPages[startIdx],
+                        matrix: generatedMatrices[0],
+                        updatedAt: new Date().toISOString()
+                    };
+                }
+                
+                // Replace or append subsequent matrices
+                for (let i = 1; i < generatedMatrices.length; i++) {
+                    const targetIndex = startIdx + i;
+                    if (targetIndex < newPages.length) {
+                        newPages[targetIndex] = {
+                            ...newPages[targetIndex],
+                            matrix: generatedMatrices[i],
+                            updatedAt: new Date().toISOString()
+                        };
+                    } else {
+                        newPages.push({
+                            id: `temp-${Date.now()}-${i}`,
+                            matrix: generatedMatrices[i],
+                            createdAt: new Date().toISOString(),
+                            updatedAt: new Date().toISOString()
+                        });
+                    }
+                }
+                return newPages;
+            });
+            
+            if (generatedMatrices.length > 1) {
+                setActivePageIndex(activePageIndexRef.current + generatedMatrices.length - 1);
+            }
+        }
+    }, [typedText, editing, activeModel.rows, activeModel.cols]);
 
     // Ask AI Teacher shortcut (Space+F on tablet keyboard)
     const askAI = useAskAI({
@@ -120,7 +195,7 @@ export function NoteDetailClient({ params }: { params: Promise<{ id: string }> }
                 
                 // Wait for 1 second to firmly clear the screen before turning off loop
                 setTimeout(() => {
-                    enableLoop(false).catch(() => {})
+                    enableLoop(false)
                 }, 1000)
                 
                 toast.success("Turned off display")
@@ -208,6 +283,11 @@ export function NoteDetailClient({ params }: { params: Promise<{ id: string }> }
             updatedAt: new Date().toISOString()
         }
         setPages(newPages)
+        if (!isTypingUpdateRef.current && editing) {
+            isManualEditRef.current = true;
+            setTypedText("") // clear typed text on manual edit
+        }
+        isTypingUpdateRef.current = false;
     }
 
     if (loading) {
@@ -324,6 +404,7 @@ export function NoteDetailClient({ params }: { params: Promise<{ id: string }> }
                                     setTitle(note.title)
                                     setPages(note.pages || [])
                                     setActivePageIndex(0)
+                                    setTypedText("")
                                 }}
                                 disabled={saving}
                                 title="Cancel editing"
@@ -419,6 +500,14 @@ export function NoteDetailClient({ params }: { params: Promise<{ id: string }> }
                     </div>
                 </div>
             </div>
+
+            {editing && (
+                <BrailleKeyboardState 
+                    typedText={typedText} 
+                    keyState={keyState} 
+                    onClearText={() => setTypedText("")} 
+                />
+            )}
 
             {error && <p className="text-sm text-destructive font-medium bg-destructive/10 p-3 rounded-lg border border-destructive/20">{error}</p>}
         </div>

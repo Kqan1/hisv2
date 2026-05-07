@@ -183,7 +183,7 @@ export default function PdfDetailPage({ params }: { params: Promise<{ id: string
                 await enableLoop(true);
                 await setArray(emptyMatrix, { cycle: false });
                 setTimeout(() => {
-                    enableLoop(false).catch(() => {});
+                    enableLoop(false);
                 }, 1000);
                 toast.success("Display turned off");
             } catch {

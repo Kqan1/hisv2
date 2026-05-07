@@ -1,13 +1,16 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Matrix from '@/components/ui/matrix'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { useModel } from '@/components/providers/model-context'
 import { toast } from 'sonner'
-import { ChevronLeft, ChevronRight, Plus, Trash2 } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Plus, Trash2, Keyboard } from 'lucide-react'
+import { useBrailleKeyboard } from '@/hooks/useBrailleKeyboard'
+import { BrailleKeyboardState } from '@/components/ui/braille-keyboard-state'
+import { textToBraillePages } from '@/lib/braille'
 
 export function NewNoteForm() {
     const router = useRouter()
@@ -19,6 +22,10 @@ export function NewNoteForm() {
             .map(() => Array(activeModel.cols).fill(-1))
     ])
     const [activePageIndex, setActivePageIndex] = useState(0)
+    
+    const { typedText, setTypedText, keyState } = useBrailleKeyboard()
+    const isTypingUpdateRef = useRef(false)
+    const isManualEditRef = useRef(false)
 
     useEffect(() => {
         setMatrices([
@@ -27,7 +34,33 @@ export function NewNoteForm() {
                 .map(() => Array(activeModel.cols).fill(-1))
         ])
         setActivePageIndex(0)
-    }, [activeModel.rows, activeModel.cols])
+        isManualEditRef.current = true;
+        setTypedText("")
+    }, [activeModel.rows, activeModel.cols, setTypedText])
+
+    useEffect(() => {
+        if (!typedText) {
+            if (isManualEditRef.current) {
+                isManualEditRef.current = false;
+                return;
+            }
+            // User backspaced until empty
+            isTypingUpdateRef.current = true;
+            setMatrices([
+                Array(activeModel.rows)
+                    .fill(0)
+                    .map(() => Array(activeModel.cols).fill(-1))
+            ]);
+            setActivePageIndex(0);
+            return;
+        }
+        const pages = textToBraillePages(typedText, activeModel.rows, activeModel.cols);
+        if (pages.length > 0) {
+            isTypingUpdateRef.current = true;
+            setMatrices(pages);
+            setActivePageIndex(pages.length - 1);
+        }
+    }, [typedText, activeModel.rows, activeModel.cols]);
 
     const [isSubmitting, setIsSubmitting] = useState(false)
     const [error, setError] = useState<string | null>(null)
@@ -50,6 +83,11 @@ export function NewNoteForm() {
         const newMatrices = [...matrices]
         newMatrices[activePageIndex] = newMatrix
         setMatrices(newMatrices)
+        if (!isTypingUpdateRef.current) {
+            isManualEditRef.current = true;
+            setTypedText("") // Clear typed text if manual edit
+        }
+        isTypingUpdateRef.current = false;
     }
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -185,6 +223,12 @@ export function NewNoteForm() {
                     </div>
                 </div>
             </div>
+
+            <BrailleKeyboardState 
+                typedText={typedText} 
+                keyState={keyState} 
+                onClearText={() => setTypedText("")} 
+            />
 
             {error && (
                 <p className="text-sm text-destructive font-medium bg-destructive/10 p-3 rounded-lg border border-destructive/20">{error}</p>

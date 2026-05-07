@@ -46,7 +46,7 @@ export default function Settings() {
             setUpdateMode(mode);
             localStorage.setItem('esp32_update_mode', mode);
         });
-        return unsub;
+        return () => { unsub(); };
     }, [onStatus, getLastStatus]);
 
     const handleUpdateModeChange = async (mode: string) => {

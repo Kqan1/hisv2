@@ -69,6 +69,11 @@ const BRAILLE_MAP: Record<string, number[]> = {
     ')': [0, 1, 1, 0, 0, 1],
     '/': [0, 0, 1, 1, 0, 0],
 
+    // Independent dot mappings for feedback (4, 5, 6)
+    '@': [0, 0, 0, 1, 0, 0], // dot 4
+    '*': [0, 0, 0, 0, 1, 0], // dot 5
+    '^': [0, 0, 0, 0, 0, 1], // dot 6
+
     // Capital indicator ⠠
     'CAP': [0, 0, 0, 0, 0, 1],
 };
@@ -169,7 +174,26 @@ export function textToBraillePages(
             continue;
         }
 
-        const dots = BRAILLE_MAP[token];
+        let dots = BRAILLE_MAP[token];
+        
+        if (!dots) {
+            // Fallback for Unicode Braille Characters (U+2800 - U+283F for 6-dot)
+            if (token.length === 1) {
+                const code = token.charCodeAt(0);
+                if (code >= 0x2800 && code <= 0x283F) {
+                    const offset = code - 0x2800;
+                    dots = [
+                        (offset >> 0) & 1,
+                        (offset >> 1) & 1,
+                        (offset >> 2) & 1,
+                        (offset >> 3) & 1,
+                        (offset >> 4) & 1,
+                        (offset >> 5) & 1,
+                    ];
+                }
+            }
+        }
+
         if (!dots) continue; // Skip unmapped characters
 
         // Check if we need to wrap
