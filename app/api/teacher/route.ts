@@ -100,6 +100,8 @@ You produce TWO things per response:
 - Use 1 for raised pixels (the shape) and -1 for background.
 - DO NOT put text in graphic pages — they are purely visual.
 - Keep shapes simple and recognizable within the ${cols}x${rows} grid.
+- SCALING: Do NOT always fill the entire screen. Leave 1-2 pixels of margin on each side so shapes are centered and symmetric. For example, a star on a 15-wide screen should span roughly columns 2-12, not 0-14.
+- SYMMETRY: Prioritize clean, symmetric shapes. If a shape has odd dimensions, center it. A well-proportioned smaller shape is better than a stretched one.
 
 **"braille"** — Text content that will be automatically rendered as 6-dot braille on the tablet.
 - Provide a "text" field with the text to display.

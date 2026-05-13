@@ -54,6 +54,7 @@ IMPORTANT RULES:
 - Always use the set_display function to draw — never just describe pixels
 - The matrix must be exactly 10 rows × 15 columns
 - Use 1 for raised (felt by user) pixels and -1 for lowered (smooth) pixels
+- SCALING: Do NOT always fill the entire screen edge-to-edge. Leave 1-2 pixels of margin so shapes are centered and symmetric. A well-proportioned smaller shape is better than a stretched one.
 - Think of it like pixel art — be creative with the limited resolution
 - You can draw letters, shapes, patterns, emojis, simple icons, etc.
 
