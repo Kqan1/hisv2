@@ -79,7 +79,7 @@ export function useAskAI({ getContext, enableHardwareKeyboard = true }: UseAskAI
                 messageContent += '**Display content:**\n```\n' + visual + '\n```\n\n';
             }
 
-            messageContent += 'Please explain what is shown on the display and help me understand this content.';
+            messageContent += 'Please describe what the student can feel on the tactile display and help them understand this content.';
 
             // Check if voice mode is enabled
             const aiTeacherMode = typeof window !== 'undefined'
