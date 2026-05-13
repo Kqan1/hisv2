@@ -6,6 +6,8 @@ import type {
   Matrix
 } from '@/types/esp32.types';
 
+export type TransportMode = 'wifi' | 'uart';
+
 class ESP32Service {
   private baseUrl: string;
   private useProxy: boolean;
@@ -16,7 +18,10 @@ class ESP32Service {
   private powerSaveEnabled = true;
   private lastSentMatrix: Matrix | null = null;
 
-  // Status WebSocket (port 83)
+  // Transport mode
+  private transport: TransportMode = 'wifi';
+
+  // Status WebSocket (port 83) — WiFi mode
   private statusWs: WebSocket | null = null;
   private statusReconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private lastStatus: ESP32Status | null = null;
@@ -25,15 +30,24 @@ class ESP32Service {
   private healthTimer: ReturnType<typeof setInterval> | null = null;
   private monitoring = false;
 
-  // Keyboard WebSocket (port 81)
+  // Keyboard WebSocket (port 81) — WiFi mode
   private keyWs: WebSocket | null = null;
   private keyReconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private keyListeners = new Set<(msg: any) => void>();
 
-  // Letter WebSocket (port 82) — braille character output
+  // Letter WebSocket (port 82) — WiFi mode (braille character output)
   private letterWs: WebSocket | null = null;
   private letterReconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private letterListeners = new Set<(msg: any) => void>();
+
+  // SSE connection — UART mode (replaces WebSockets)
+  private sseSource: EventSource | null = null;
+  private sseReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  // Polling fallback for connection state (SSE named events can be unreliable)
+  private uartStatePoller: ReturnType<typeof setInterval> | null = null;
+
+  // Shared nav-mode flag (set by useTabletNav, read by braille handlers)
+  navActive = false;
 
   constructor(ip: string, useProxy = false) {
     this.ip = ip;
@@ -52,6 +66,12 @@ class ESP32Service {
       if (savedIp && !this.ip) {
         this.ip = savedIp;
       }
+
+      // Load saved transport mode
+      const savedTransport = localStorage.getItem('esp32_transport');
+      if (savedTransport === 'uart' || savedTransport === 'wifi') {
+        this.transport = savedTransport;
+      }
     }
 
     // Default IP if still empty
@@ -64,13 +84,89 @@ class ESP32Service {
       ? '/api/esp32'
       : `http://${this.ip}`;
 
-    // Auto-start WebSocket monitoring on client
+    // Auto-start monitoring on client
     if (typeof window !== 'undefined') {
+      if (this.transport === 'wifi') {
+        this.startMonitoring();
+        this.connectKeyboardWs();
+        this.connectLetterWs();
+        // Sync IP to server-side proxy
+        this.syncIpToServer();
+      } else {
+        // UART mode: connect SSE stream
+        this.connectSSE();
+      }
+    }
+  }
+
+  // ========================================================================
+  // TRANSPORT MODE
+  // ========================================================================
+
+  setTransport(mode: TransportMode) {
+    if (this.transport === mode) return;
+
+    const oldMode = this.transport;
+    this.transport = mode;
+
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('esp32_transport', mode);
+    }
+
+    // Tear down old transport connections
+    if (oldMode === 'wifi') {
+      this.teardownWifiConnections();
+    } else {
+      this.teardownSSE();
+    }
+
+    // Set up new transport connections
+    if (mode === 'wifi') {
       this.startMonitoring();
       this.connectKeyboardWs();
       this.connectLetterWs();
-      // Sync IP to server-side proxy
       this.syncIpToServer();
+    } else {
+      this.connectSSE();
+    }
+  }
+
+  getTransport(): TransportMode {
+    return this.transport;
+  }
+
+  private teardownWifiConnections() {
+    // Stop status WS
+    this.monitoring = false;
+    if (this.healthTimer) {
+      clearInterval(this.healthTimer);
+      this.healthTimer = null;
+    }
+    if (this.statusReconnectTimer) {
+      clearTimeout(this.statusReconnectTimer);
+      this.statusReconnectTimer = null;
+    }
+    if (this.statusWs) {
+      this.statusWs.close();
+      this.statusWs = null;
+    }
+    // Stop keyboard WS
+    if (this.keyReconnectTimer) {
+      clearTimeout(this.keyReconnectTimer);
+      this.keyReconnectTimer = null;
+    }
+    if (this.keyWs) {
+      this.keyWs.close();
+      this.keyWs = null;
+    }
+    // Stop letter WS
+    if (this.letterReconnectTimer) {
+      clearTimeout(this.letterReconnectTimer);
+      this.letterReconnectTimer = null;
+    }
+    if (this.letterWs) {
+      this.letterWs.close();
+      this.letterWs = null;
     }
   }
 
@@ -92,8 +188,8 @@ class ESP32Service {
     if (!this.useProxy) {
       this.baseUrl = `http://${ip}`;
     }
-    // Reconnect WebSocket to new IP
-    if (this.monitoring) {
+    // Reconnect WebSocket to new IP (only in WiFi mode)
+    if (this.transport === 'wifi' && this.monitoring) {
       this.forceReconnect();
     }
   }
@@ -123,7 +219,133 @@ class ESP32Service {
   }
 
   // ========================================================================
-  // STATUS WEBSOCKET (port 83) — replaces HTTP polling
+  // SSE CONNECTION — UART MODE (replaces WebSockets)
+  // ========================================================================
+
+  private connectSSE() {
+    if (typeof window === 'undefined') return;
+    if (this.sseSource) return;
+
+    this.setState('checking');
+
+    // Start polling /api/uart/connect for connection state as a reliable fallback
+    this.startUartStatePolling();
+
+    try {
+      const source = new EventSource('/api/uart/stream?subscribe=all');
+
+      source.onopen = () => {
+        console.log('[ESP32] SSE connected');
+        // Immediately poll for state on SSE open
+        this.pollUartState();
+      };
+
+      source.addEventListener('state', (e: MessageEvent) => {
+        try {
+          const data = JSON.parse(e.data);
+          if (data.state === 'connected') {
+            this.setState('connected');
+          } else if (data.state === 'disconnected') {
+            this.setState('disconnected');
+          } else {
+            this.setState('checking');
+          }
+        } catch { /* ignore */ }
+      });
+
+      source.addEventListener('status', (e: MessageEvent) => {
+        try {
+          const status: ESP32Status = JSON.parse(e.data);
+          this.lastStatus = status;
+          this.setState('connected');
+          this.statusListeners.forEach(fn => fn(status));
+        } catch { /* ignore */ }
+      });
+
+      source.addEventListener('keystate', (e: MessageEvent) => {
+        try {
+          const msg = JSON.parse(e.data);
+          this.keyListeners.forEach(fn => fn(msg));
+        } catch { /* ignore */ }
+      });
+
+      source.addEventListener('letter', (e: MessageEvent) => {
+        try {
+          const msg = JSON.parse(e.data);
+          this.letterListeners.forEach(fn => fn(msg));
+        } catch { /* ignore */ }
+      });
+
+      source.onerror = () => {
+        this.sseSource?.close();
+        this.sseSource = null;
+        this.setState('disconnected');
+        // Auto-reconnect after 3 seconds
+        this.sseReconnectTimer = setTimeout(() => {
+          if (this.transport === 'uart') {
+            this.connectSSE();
+          }
+        }, 3000);
+      };
+
+      this.sseSource = source;
+    } catch {
+      this.setState('disconnected');
+      this.sseReconnectTimer = setTimeout(() => {
+        if (this.transport === 'uart') {
+          this.connectSSE();
+        }
+      }, 3000);
+    }
+  }
+
+  private teardownSSE() {
+    if (this.sseReconnectTimer) {
+      clearTimeout(this.sseReconnectTimer);
+      this.sseReconnectTimer = null;
+    }
+    if (this.sseSource) {
+      this.sseSource.close();
+      this.sseSource = null;
+    }
+    this.stopUartStatePolling();
+  }
+
+  /** Poll /api/uart/connect for connection state — reliable fallback for SSE */
+  private startUartStatePolling() {
+    if (this.uartStatePoller) return;
+    this.pollUartState(); // Immediate first poll
+    this.uartStatePoller = setInterval(() => this.pollUartState(), 5000);
+  }
+
+  private stopUartStatePolling() {
+    if (this.uartStatePoller) {
+      clearInterval(this.uartStatePoller);
+      this.uartStatePoller = null;
+    }
+  }
+
+  private async pollUartState() {
+    try {
+      const res = await fetch('/api/uart/connect', { cache: 'no-store' });
+      const data = await res.json();
+      if (data.state === 'connected') {
+        this.setState('connected');
+      } else if (data.state === 'disconnected') {
+        this.setState('disconnected');
+      }
+    } catch { /* ignore */ }
+  }
+
+  /** Force reconnect SSE (e.g. after UART connect/disconnect) */
+  reconnectSSE() {
+    if (this.transport !== 'uart') return;
+    this.teardownSSE();
+    this.connectSSE();
+  }
+
+  // ========================================================================
+  // STATUS WEBSOCKET (port 83) — WiFi mode only
   // ========================================================================
 
   /** Subscribe to real-time status updates from the device */
@@ -143,6 +365,7 @@ class ESP32Service {
 
   private connectStatusWs() {
     if (typeof WebSocket === 'undefined') return; // SSR guard
+    if (this.transport !== 'wifi') return; // Only in WiFi mode
     if (this.statusWs?.readyState === WebSocket.OPEN || 
         this.statusWs?.readyState === WebSocket.CONNECTING) return;
 
@@ -168,7 +391,7 @@ class ESP32Service {
 
       ws.onclose = () => {
         this.statusWs = null;
-        if (this.monitoring) {
+        if (this.monitoring && this.transport === 'wifi') {
           this.setState('disconnected');
           // Auto-reconnect after 2 seconds
           this.statusReconnectTimer = setTimeout(() => {
@@ -194,6 +417,7 @@ class ESP32Service {
   /** Start monitoring via status WebSocket — called once automatically in constructor */
   startMonitoring() {
     if (this.monitoring) return;
+    if (this.transport !== 'wifi') return;
     this.monitoring = true;
 
     this.connectStatusWs();
@@ -239,12 +463,13 @@ class ESP32Service {
   }
 
   // ========================================================================
-  // KEYBOARD WEBSOCKET (PORT 81)
+  // KEYBOARD WEBSOCKET (PORT 81) — WiFi mode only
   // ========================================================================
 
   /** Connect to the hardware keyboard WebSocket on port 81 */
   private connectKeyboardWs() {
     if (typeof window === 'undefined') return;
+    if (this.transport !== 'wifi') return;
     if (this.keyWs) return;
 
     try {
@@ -261,9 +486,11 @@ class ESP32Service {
 
       ws.onclose = () => {
         this.keyWs = null;
-        this.keyReconnectTimer = setTimeout(() => {
-          this.connectKeyboardWs();
-        }, 3000);
+        if (this.transport === 'wifi') {
+          this.keyReconnectTimer = setTimeout(() => {
+            this.connectKeyboardWs();
+          }, 3000);
+        }
       };
 
       ws.onerror = () => { /* onclose will handle reconnect */ };
@@ -284,12 +511,13 @@ class ESP32Service {
   }
 
   // ========================================================================
-  // LETTER WEBSOCKET (PORT 82)
+  // LETTER WEBSOCKET (PORT 82) — WiFi mode only
   // ========================================================================
 
   /** Connect to the braille letter WebSocket on port 82 */
   private connectLetterWs() {
     if (typeof window === 'undefined') return;
+    if (this.transport !== 'wifi') return;
     if (this.letterWs) return;
 
     try {
@@ -306,9 +534,11 @@ class ESP32Service {
 
       ws.onclose = () => {
         this.letterWs = null;
-        this.letterReconnectTimer = setTimeout(() => {
-          this.connectLetterWs();
-        }, 3000);
+        if (this.transport === 'wifi') {
+          this.letterReconnectTimer = setTimeout(() => {
+            this.connectLetterWs();
+          }, 3000);
+        }
       };
 
       ws.onerror = () => { /* onclose will handle reconnect */ };
@@ -334,6 +564,12 @@ class ESP32Service {
 
   private async request<T>(endpoint: string, options?: RequestInit): Promise<T> {
     try {
+      // UART transport: proxy through /api/uart/command
+      if (this.transport === 'uart') {
+        return this.requestViaUart<T>(endpoint, options);
+      }
+
+      // WiFi transport: existing HTTP proxy path
       const headersInit: HeadersInit = options?.headers || {};
       if (options?.body && typeof options.body === 'string') {
         const h = new Headers(headersInit);
@@ -359,9 +595,39 @@ class ESP32Service {
 
       throw new Error(`HTTP ${response.status}`);
     } catch (error) {
-      // Don't change connection state here — WebSocket is the source of truth
+      // Don't change connection state here — WebSocket/SSE is the source of truth
       throw error;
     }
+  }
+
+  /** Route a request through the UART command API */
+  private async requestViaUart<T>(endpoint: string, options?: RequestInit): Promise<T> {
+    let body: Record<string, unknown> = {};
+    if (options?.body && typeof options.body === 'string') {
+      try {
+        body = JSON.parse(options.body);
+      } catch { /* ignore */ }
+    }
+
+    const response = await fetch('/api/uart/command', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        endpoint,
+        body,
+      }),
+      signal: AbortSignal.timeout(ESP32_CONFIG.timeout + 2000), // Extra time for serial
+      cache: 'no-store',
+    });
+
+    if (response.ok) {
+      // Successful command = we're connected
+      this.setState('connected');
+      return response.json();
+    }
+
+    const errorData = await response.json().catch(() => ({ error: `HTTP ${response.status}` }));
+    throw new Error(errorData.error || `HTTP ${response.status}`);
   }
 
   // ========================================================================
@@ -508,3 +774,4 @@ export function getESP32Service(ip?: string, useProxy = true): ESP32Service {
 
 // Export for direct access if needed
 export { ESP32Service };
+export type { TransportMode as ESP32TransportMode };

@@ -11,6 +11,75 @@ import { PlayIcon, SquareIcon, MessageSquareIcon, SendIcon, ChevronDownIcon, Che
 import { toast } from "sonner";
 import { useAskAI } from '@/hooks/useAskAI';
 
+// ========================================================================
+// AUDIO BUFFER → WAV ENCODER (for STT upload)
+// ========================================================================
+
+function audioBufferToWav(buffer: AudioBuffer): Blob {
+    const numChannels = buffer.numberOfChannels;
+    const sampleRate = buffer.sampleRate;
+    const format = 1; // PCM
+    const bitsPerSample = 16;
+
+    const interleaved = numChannels === 1
+        ? buffer.getChannelData(0)
+        : interleaveChannels(buffer);
+
+    const dataLength = interleaved.length * (bitsPerSample / 8);
+    const headerLength = 44;
+    const totalLength = headerLength + dataLength;
+
+    const arrayBuffer = new ArrayBuffer(totalLength);
+    const view = new DataView(arrayBuffer);
+
+    // WAV header
+    writeString(view, 0, 'RIFF');
+    view.setUint32(4, totalLength - 8, true);
+    writeString(view, 8, 'WAVE');
+    writeString(view, 12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, format, true);
+    view.setUint16(22, numChannels, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * numChannels * (bitsPerSample / 8), true);
+    view.setUint16(32, numChannels * (bitsPerSample / 8), true);
+    view.setUint16(34, bitsPerSample, true);
+    writeString(view, 36, 'data');
+    view.setUint32(40, dataLength, true);
+
+    // Write PCM samples
+    let offset = 44;
+    for (let i = 0; i < interleaved.length; i++) {
+        const s = Math.max(-1, Math.min(1, interleaved[i]));
+        view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+        offset += 2;
+    }
+
+    return new Blob([arrayBuffer], { type: 'audio/wav' });
+}
+
+function interleaveChannels(buffer: AudioBuffer): Float32Array {
+    const channels = [];
+    for (let i = 0; i < buffer.numberOfChannels; i++) {
+        channels.push(buffer.getChannelData(i));
+    }
+    const length = channels[0].length * channels.length;
+    const result = new Float32Array(length);
+    let idx = 0;
+    for (let i = 0; i < channels[0].length; i++) {
+        for (let ch = 0; ch < channels.length; ch++) {
+            result[idx++] = channels[ch][i];
+        }
+    }
+    return result;
+}
+
+function writeString(view: DataView, offset: number, str: string) {
+    for (let i = 0; i < str.length; i++) {
+        view.setUint8(offset + i, str.charCodeAt(i));
+    }
+}
+
 type FrameWithMatrix = {
     id: string;
     lectureRecordId: string;
@@ -69,20 +138,98 @@ export default function LectureRecordDetailClient({
 
     const recordRef = useRef<LectureRecordWithFrames | null>(null);
     const currentFrameIndexRef = useRef(0);
+    const audioRefForAskAI = useRef<HTMLAudioElement | null>(null);
+    const audioUrlRefForAskAI = useRef<string | null>(null);
     recordRef.current = record;
     currentFrameIndexRef.current = currentFrameIndex;
 
     // Ask AI Teacher shortcut (Space+F on tablet keyboard)
     const askAI = useAskAI({
-        getContext: useCallback(() => {
+        getContext: useCallback(async () => {
             const rec = recordRef.current;
             const idx = currentFrameIndexRef.current;
             const frame = rec?.frames[idx];
             const matrix = frame?.pixelMatrix?.matrix as number[][] | undefined;
+
+            // Try to clip last 15s of audio and transcribe via ElevenLabs STT
+            let audioTranscript: string | null = null;
+            const audioEl = audioRefForAskAI.current;
+            const audioSrc = audioUrlRefForAskAI.current;
+
+            if (audioSrc && audioEl) {
+                try {
+                    // Determine current time — either from audio element or from frame deltaTime
+                    const currentTimeSec = audioEl.currentTime > 0
+                        ? audioEl.currentTime
+                        : (frame?.deltaTime || 0) / 1000;
+
+                    const clipStartSec = Math.max(0, currentTimeSec - 15);
+                    const clipEndSec = currentTimeSec;
+
+                    if (clipEndSec > clipStartSec + 0.1) {
+                        // Fetch the audio blob
+                        const audioRes = await fetch(audioSrc);
+                        const audioBlob = await audioRes.blob();
+                        const arrayBuffer = await audioBlob.arrayBuffer();
+
+                        // Decode with Web Audio API
+                        const audioCtx = new AudioContext();
+                        const decoded = await audioCtx.decodeAudioData(arrayBuffer);
+
+                        // Calculate sample range
+                        const sampleRate = decoded.sampleRate;
+                        const startSample = Math.floor(clipStartSec * sampleRate);
+                        const endSample = Math.min(Math.floor(clipEndSec * sampleRate), decoded.length);
+                        const clipLength = endSample - startSample;
+
+                        if (clipLength > 0) {
+                            // Create a new buffer with the clipped audio
+                            const clippedBuffer = audioCtx.createBuffer(
+                                decoded.numberOfChannels,
+                                clipLength,
+                                sampleRate
+                            );
+                            for (let ch = 0; ch < decoded.numberOfChannels; ch++) {
+                                const sourceData = decoded.getChannelData(ch);
+                                const clipData = clippedBuffer.getChannelData(ch);
+                                for (let i = 0; i < clipLength; i++) {
+                                    clipData[i] = sourceData[startSample + i];
+                                }
+                            }
+
+                            // Encode to WAV for upload
+                            const wavBlob = audioBufferToWav(clippedBuffer);
+
+                            // Send to our STT endpoint
+                            const sttForm = new FormData();
+                            sttForm.append('file', wavBlob, 'clip.wav');
+
+                            const sttRes = await fetch('/api/stt', {
+                                method: 'POST',
+                                body: sttForm,
+                            });
+
+                            if (sttRes.ok) {
+                                const sttData = await sttRes.json();
+                                if (sttData.text && sttData.text.trim()) {
+                                    audioTranscript = sttData.text.trim();
+                                }
+                            }
+                        }
+
+                        audioCtx.close();
+                    }
+                } catch (err) {
+                    console.error('[AskAI] Audio clip/STT failed:', err);
+                    // Continue without transcript — non-fatal
+                }
+            }
+
             return {
                 matrix: matrix || null,
                 description: `Lecture Record: "${rec?.title || ''}", Frame ${idx + 1} of ${rec?.frames.length || 0}`,
                 source: 'Lecture Records',
+                audioTranscript,
             };
         }, []),
         enableHardwareKeyboard: true,
@@ -176,6 +323,10 @@ export default function LectureRecordDetailClient({
     const isSending = useRef(false);
     const audioRef = useRef<HTMLAudioElement | null>(null);
     const [audioUrl, setAudioUrl] = useState<string | null>(null);
+
+    // Sync audio refs for AskAI's async getContext
+    audioRefForAskAI.current = audioRef.current;
+    audioUrlRefForAskAI.current = audioUrl;
 
     // Prepare audio URL
     useEffect(() => {

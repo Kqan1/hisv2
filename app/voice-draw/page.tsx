@@ -141,7 +141,6 @@ function VoiceDrawListContent() {
                 title="AI Teacher Sessions"
                 description="Your previous voice-controlled drawing sessions"
                 Icon={<Sparkles className="size-8 text-primary" />}
-                hideBackButton={true}
             />
             {toolbar}
 

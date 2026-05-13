@@ -144,7 +144,6 @@ function AITeacherListContent() {
                 title="AI Teacher Chats" 
                 description="Your previous conversations with the AI Teacher" 
                 Icon={<BrainCircuit className="size-8 text-primary" />} 
-                hideBackButton={true}
             />
             {toolbar}
 

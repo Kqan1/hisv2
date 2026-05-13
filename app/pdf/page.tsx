@@ -180,7 +180,6 @@ function PdfListContent() {
                 title="PDF to Matrix"
                 description="Convert PDF documents to braille matrix pages"
                 Icon={<FileText className="size-8 text-primary" />}
-                hideBackButton={true}
             />
             {toolbar}
 

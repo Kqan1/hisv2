@@ -8,8 +8,10 @@ import { useESP32 } from '@/hooks/useESP32'
 import { cn } from '@/lib/utils'
 import { useModel } from '@/components/providers/model-context'
 import { toast } from 'sonner'
-import { TriangleAlertIcon, ChevronLeft, ChevronRight, Plus, Trash2, MonitorUp, BrainCircuit, Loader2 } from 'lucide-react'
+import { TriangleAlertIcon, ChevronLeft, ChevronRight, Plus, Trash2, MonitorUp, BrainCircuit, Loader2, Keyboard } from 'lucide-react'
 import { useAskAI } from '@/hooks/useAskAI'
+import { BRAILLE_MAP, CELL_WIDTH, CELL_HEIGHT } from '@/lib/braille'
+import { getESP32Service } from '@/services/esp32.service'
 
 type NotePage = {
     id: string
@@ -53,6 +55,153 @@ export function NoteDetailClient({ params }: { params: Promise<{ id: string }> }
     pagesRef.current = pages
     activePageIndexRef.current = activePageIndex
     titleRef.current = title
+
+    // ── Braille Typing Mode ──
+    const [brailleTyping, setBrailleTyping] = useState(false)
+    const brailleTypingRef = useRef(false)
+    brailleTypingRef.current = brailleTyping
+    const brailleCursorRef = useRef({ col: 0, line: 0 })
+
+    const CHAR_GAP = 1
+    const LINE_GAP = 1
+    const charStep = CELL_WIDTH + CHAR_GAP
+    const lineStep = CELL_HEIGHT + LINE_GAP
+
+    useEffect(() => {
+        if (!brailleTyping) return
+        const service = getESP32Service()
+
+        const maxCharsPerLine = Math.floor((activeModel.cols + CHAR_GAP) / charStep)
+        const maxLinesPerPage = Math.floor((activeModel.rows + LINE_GAP) / lineStep)
+
+        // Helper: ensure we're on a page with room, or create one
+        const ensureRoom = () => {
+            const cursor = brailleCursorRef.current
+            if (cursor.line < maxLinesPerPage) return
+
+            // Page is full — add a new page
+            const currentPages = pagesRef.current
+            const newPage: NotePage = {
+                id: `temp-${Date.now()}`,
+                matrix: Array(activeModel.rows).fill(0).map(() => Array(activeModel.cols).fill(-1)),
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString()
+            }
+            const newPages = [...currentPages, newPage]
+            // Update refs immediately so handler reads correct data
+            pagesRef.current = newPages
+            activePageIndexRef.current = newPages.length - 1
+            // Trigger React re-render
+            setPages(newPages)
+            setActivePageIndex(newPages.length - 1)
+            cursor.col = 0
+            cursor.line = 0
+        }
+
+        const handler = (msg: any) => {
+            if (msg.type !== 'letter' || !msg.letter) return
+            if (!brailleTypingRef.current) return
+            if (service.navActive || document.body.hasAttribute('data-tablet-nav')) return
+
+            const currentPages = pagesRef.current
+            const idx = activePageIndexRef.current
+            const page = currentPages[idx]
+            if (!page?.matrix) return
+
+            const cursor = brailleCursorRef.current
+            const letter = msg.letter.toLowerCase()
+
+            // Handle backspace
+            if (letter === '\b' || letter === 'backspace') {
+                if (cursor.col > 0) {
+                    cursor.col--
+                } else if (cursor.line > 0) {
+                    cursor.line--
+                    cursor.col = maxCharsPerLine - 1
+                } else {
+                    return
+                }
+                const newMatrix = page.matrix.map(r => [...r])
+                const pixelCol = cursor.col * charStep
+                const pixelRow = cursor.line * lineStep
+                for (let dr = 0; dr < CELL_HEIGHT; dr++) {
+                    for (let dc = 0; dc < CELL_WIDTH; dc++) {
+                        const r = pixelRow + dr
+                        const c = pixelCol + dc
+                        if (r < activeModel.rows && c < activeModel.cols) {
+                            newMatrix[r][c] = -1
+                        }
+                    }
+                }
+                const newPages = [...currentPages]
+                newPages[idx] = { ...page, matrix: newMatrix, updatedAt: new Date().toISOString() }
+                setPages(newPages)
+                return
+            }
+
+            // Handle space
+            if (letter === ' ' || letter === 'space') {
+                cursor.col++
+                if (cursor.col >= maxCharsPerLine) {
+                    cursor.col = 0
+                    cursor.line++
+                }
+                ensureRoom()
+                return
+            }
+
+            // Handle enter
+            if (letter === '\n' || letter === 'enter') {
+                cursor.col = 0
+                cursor.line++
+                ensureRoom()
+                return
+            }
+
+            // Look up braille dots
+            const dots = BRAILLE_MAP[letter]
+            if (!dots) return
+
+            // Wrap if needed
+            if (cursor.col >= maxCharsPerLine) {
+                cursor.col = 0
+                cursor.line++
+            }
+            ensureRoom()
+
+            // Re-read page after possible new page creation
+            const latestPages = pagesRef.current
+            const latestIdx = activePageIndexRef.current
+            const latestPage = latestPages[latestIdx]
+            if (!latestPage?.matrix) return
+
+            // Stamp braille cell onto matrix
+            const newMatrix = latestPage.matrix.map(r => [...r])
+            const pixelCol = cursor.col * charStep
+            const pixelRow = cursor.line * lineStep
+            const positions = [
+                [pixelRow + 0, pixelCol + 0, dots[0]],
+                [pixelRow + 1, pixelCol + 0, dots[1]],
+                [pixelRow + 2, pixelCol + 0, dots[2]],
+                [pixelRow + 0, pixelCol + 1, dots[3]],
+                [pixelRow + 1, pixelCol + 1, dots[4]],
+                [pixelRow + 2, pixelCol + 1, dots[5]],
+            ]
+            for (const [r, c, val] of positions) {
+                if (r < activeModel.rows && c < activeModel.cols) {
+                    newMatrix[r][c] = val === 1 ? 1 : -1
+                }
+            }
+
+            const newPages = [...latestPages]
+            newPages[latestIdx] = { ...latestPage, matrix: newMatrix, updatedAt: new Date().toISOString() }
+            setPages(newPages)
+            cursor.col++
+        }
+
+        const unsub = service.onLetterMessage(handler)
+        return () => unsub()
+    }, [brailleTyping, activeModel.rows, activeModel.cols, charStep, lineStep])
 
     // Ask AI Teacher shortcut (Space+F on tablet keyboard)
     const askAI = useAskAI({
@@ -201,6 +350,11 @@ export function NoteDetailClient({ params }: { params: Promise<{ id: string }> }
     }
 
     const updateActiveMatrix = (newMatrix: number[][]) => {
+        // Reset braille cursor if matrix was cleared
+        if (brailleTypingRef.current && newMatrix.every(row => row.every(cell => cell === -1))) {
+            brailleCursorRef.current = { col: 0, line: 0 }
+        }
+
         const newPages = [...pages]
         newPages[activePageIndex] = {
             ...newPages[activePageIndex],
@@ -293,8 +447,29 @@ export function NoteDetailClient({ params }: { params: Promise<{ id: string }> }
                                 variant={isDisplaying ? "secondary" : "default"} 
                                 onClick={handleSendToTablet}
                                 title={isDisplaying ? "Hide Display" : "Send to Display"}
+                                aria-label={isDisplaying ? "Hide Display" : "Send to Display"}
                             >
                                 <MonitorUp size={16} />
+                            </Button>
+                            <Button
+                                size="icon-sm"
+                                variant={brailleTyping ? "secondary" : "outline"}
+                                onClick={() => {
+                                    const next = !brailleTyping
+                                    setBrailleTyping(next)
+                                    if (next) {
+                                        brailleCursorRef.current = { col: 0, line: 0 }
+                                        if (!editing) setEditing(true)
+                                        if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+                                        toast.success('Braille typing ON — type on tablet keyboard')
+                                    } else {
+                                        toast.success('Braille typing OFF')
+                                    }
+                                }}
+                                title={brailleTyping ? 'Braille Typing: ON' : 'Braille Typing: OFF'}
+                                aria-label={brailleTyping ? 'Disable braille typing' : 'Enable braille typing'}
+                            >
+                                <Keyboard size={16} />
                             </Button>
                             <Button
                                 size="icon-sm"
@@ -302,6 +477,7 @@ export function NoteDetailClient({ params }: { params: Promise<{ id: string }> }
                                 onClick={askAI.trigger}
                                 disabled={askAI.isTriggering}
                                 title="Ask AI Teacher (Space+F)"
+                                aria-label="Ask AI Teacher"
                             >
                                 {askAI.isTriggering ? (
                                     <Loader2 size={16} className="animate-spin" />

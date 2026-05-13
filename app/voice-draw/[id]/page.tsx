@@ -9,7 +9,6 @@ import { Heading } from '@/components/ui/heading';
 import {
   Mic,
   MicOff,
-  Phone,
   PhoneOff,
   Send,
   Volume2,
@@ -42,12 +41,15 @@ export default function VoiceDrawSession({ params }: { params: Promise<{ id: str
     sendText,
     error,
     audioLevel,
+    isMuted,
+    toggleMute,
   } = useGeminiLive();
 
   const [textInput, setTextInput] = useState('');
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const isConnecting = state === 'connecting';
   const isConnected = state === 'connected';
+  const hasAutoSentContext = useRef(false);
 
   // Load chat
   useEffect(() => {
@@ -105,6 +107,42 @@ export default function VoiceDrawSession({ params }: { params: Promise<{ id: str
     }
   }, [transcript]);
 
+  // Auto-start session when arriving from "Ask AI" flow (context is in sessionStorage)
+  useEffect(() => {
+    if (paramId === 'new' && state === 'idle') {
+      try {
+        const ctx = sessionStorage.getItem('askAI_voiceContext');
+        if (ctx) {
+          // Context exists — auto-start the voice session
+          startSession();
+        }
+      } catch {
+        // sessionStorage may not be available
+      }
+    }
+    // Only run on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Auto-send context from sessionStorage once voice AI connects (from "Ask AI" flow)
+  useEffect(() => {
+    if (state === 'connected' && !hasAutoSentContext.current) {
+      hasAutoSentContext.current = true;
+      try {
+        const ctx = sessionStorage.getItem('askAI_voiceContext');
+        if (ctx) {
+          sessionStorage.removeItem('askAI_voiceContext');
+          // Brief delay to let the connection stabilize
+          setTimeout(() => {
+            sendText(ctx);
+          }, 500);
+        }
+      } catch {
+        // sessionStorage may not be available
+      }
+    }
+  }, [state, sendText]);
+
   const handleTextSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!textInput.trim()) return;
@@ -125,7 +163,6 @@ export default function VoiceDrawSession({ params }: { params: Promise<{ id: str
             title="Voice AI Teacher"
             description="Control the display with your voice."
             Icon={<Sparkles className="size-8 text-primary" />}
-            hideBackButton={true}
           />
         </div>
 
@@ -155,15 +192,15 @@ export default function VoiceDrawSession({ params }: { params: Promise<{ id: str
 
         {/* Top: Mic + Visualizer */}
         <div className="vd-control-panel">
-          {/* Mic Orb Button */}
+          {/* Orb Button — start session OR mute toggle */}
           <button
             className="vd-orb-container"
-            onClick={isConnected ? endSession : startSession}
+            onClick={isConnected ? toggleMute : startSession}
             disabled={isConnecting}
-            aria-label={isConnected ? "End AI Teacher" : "Start AI Teacher"}
+            aria-label={isConnected ? (isMuted ? "Unmute microphone" : "Mute microphone") : "Start AI Teacher"}
           >
             <div
-              className={`vd-orb ${isConnected ? 'vd-orb--active' : ''} ${isSpeaking ? 'vd-orb--speaking' : ''}`}
+              className={`vd-orb ${isConnected ? 'vd-orb--active' : ''} ${isSpeaking ? 'vd-orb--speaking' : ''} ${isMuted ? 'vd-orb--muted' : ''}`}
               style={{
                 '--audio-level': audioLevel,
               } as React.CSSProperties}
@@ -175,7 +212,9 @@ export default function VoiceDrawSession({ params }: { params: Promise<{ id: str
 
               {/* Center icon */}
               <div className="vd-orb__center">
-                {isSpeaking ? (
+                {isMuted ? (
+                  <MicOff size={32} className="vd-orb__icon" />
+                ) : isSpeaking ? (
                   <Volume2 size={32} className="vd-orb__icon" />
                 ) : isConnected ? (
                   <Mic size={32} className="vd-orb__icon" />
@@ -188,11 +227,24 @@ export default function VoiceDrawSession({ params }: { params: Promise<{ id: str
             {/* Status text */}
             <p className="vd-status-text">
               {isConnecting ? 'Connecting...' :
-                isSpeaking ? 'AI is speaking...' :
-                  isConnected ? 'Tap to end session' :
-                    'Tap to Start AI Teacher'}
+                isMuted ? 'Muted — Tap to unmute' :
+                  isSpeaking ? 'AI is speaking...' :
+                    isConnected ? 'Listening — Tap to mute' :
+                      'Tap to Start AI Teacher'}
             </p>
           </button>
+
+          {/* Disconnect button — only visible when connected */}
+          {isConnected && (
+            <button
+              className="vd-disconnect-btn"
+              onClick={endSession}
+              aria-label="Disconnect"
+            >
+              <PhoneOff size={18} />
+              Disconnect
+            </button>
+          )}
 
           {/* Text input fallback */}
           {isConnected && (
@@ -422,6 +474,22 @@ export default function VoiceDrawSession({ params }: { params: Promise<{ id: str
             inset 0 0 20px hsl(0 0% 100% / 0.4);
         }
 
+        /* Muted state — amber/orange tint */
+        .vd-orb--muted .vd-orb__ring {
+          border-color: hsl(35 90% 55% / 0.4) !important;
+          animation: none !important;
+          transform: none !important;
+        }
+        .vd-orb--muted .vd-orb__center {
+          background: linear-gradient(135deg, hsl(35 60% 30%), hsl(35 40% 15%));
+          box-shadow: 
+            0 0 30px hsl(35 80% 50% / 0.3),
+            inset 0 0 15px hsl(35 80% 60% / 0.15);
+        }
+        .vd-orb--muted .vd-orb__icon {
+          color: hsl(35 90% 65%);
+        }
+
         .vd-orb__icon {
           color: white;
           filter: drop-shadow(0 0 4px rgba(255,255,255,0.5));
@@ -432,6 +500,42 @@ export default function VoiceDrawSession({ params }: { params: Promise<{ id: str
           color: hsl(0 0% 60%);
           text-align: center;
           font-weight: 500;
+        }
+
+        /* ================================ */
+        /* Disconnect Button                */
+        /* ================================ */
+
+        .vd-disconnect-btn {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 0.5rem;
+          padding: 0.625rem 1.5rem;
+          border-radius: 2rem;
+          font-size: 0.875rem;
+          font-weight: 600;
+          border: 1px solid hsl(0 65% 50% / 0.5);
+          background: hsl(0 65% 50% / 0.15);
+          color: hsl(0 80% 65%);
+          cursor: pointer;
+          transition: all 0.2s ease;
+          width: fit-content;
+          margin: 0 auto;
+        }
+        .vd-disconnect-btn:hover {
+          background: hsl(0 65% 50% / 0.3);
+          border-color: hsl(0 65% 50% / 0.7);
+        }
+        :global([data-theme="light"]) .vd-disconnect-btn,
+        :global(.light) .vd-disconnect-btn {
+          background: hsl(0 65% 95%);
+          color: hsl(0 65% 45%);
+          border-color: hsl(0 65% 80%);
+        }
+        :global([data-theme="light"]) .vd-disconnect-btn:hover,
+        :global(.light) .vd-disconnect-btn:hover {
+          background: hsl(0 65% 90%);
         }
 
         /* ================================ */

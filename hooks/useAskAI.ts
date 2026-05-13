@@ -14,11 +14,13 @@ interface AskAIContext {
     source?: string;
     /** Device model ID (e.g., "amc-1", "amc-3") — used for badge in chat list */
     deviceModelId?: string;
+    /** Transcribed audio from the lecture recording (last 15s) */
+    audioTranscript?: string | null;
 }
 
 interface UseAskAIOptions {
     /** Function that returns the current display context */
-    getContext: () => AskAIContext;
+    getContext: () => AskAIContext | Promise<AskAIContext>;
     /**
      * Whether to listen for the hardware keyboard Space+F combo.
      * Uses the singleton keyboard WebSocket from ESP32Service (port 81).
@@ -54,7 +56,7 @@ export function useAskAI({ getContext, enableHardwareKeyboard = true }: UseAskAI
         toast.info('🧠 Opening AI Teacher...');
 
         try {
-            const ctx = getContext();
+            const ctx = await getContext();
             
             // Build the initial message describing what's on screen
             let messageContent = '📋 **Context from ';
@@ -63,6 +65,10 @@ export function useAskAI({ getContext, enableHardwareKeyboard = true }: UseAskAI
 
             if (ctx.description) {
                 messageContent += ctx.description + '\n\n';
+            }
+
+            if (ctx.audioTranscript) {
+                messageContent += '**Lecture audio transcript (last 15 seconds):**\n' + ctx.audioTranscript + '\n\n';
             }
 
             if (ctx.matrix) {
@@ -75,29 +81,44 @@ export function useAskAI({ getContext, enableHardwareKeyboard = true }: UseAskAI
 
             messageContent += 'Please explain what is shown on the display and help me understand this content.';
 
-            // Create a new chat with the context message as the first user message
-            const chatRes = await fetch('/api/teacher/chats', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    title: `Ask AI: ${ctx.source || 'Display Content'}`,
-                    messages: [{
-                        role: 'user',
-                        content: messageContent,
-                        timestamp: new Date().toISOString(),
-                    }],
-                    deviceModelId: ctx.deviceModelId,
-                }),
-            });
+            // Check if voice mode is enabled
+            const aiTeacherMode = typeof window !== 'undefined'
+                ? localStorage.getItem('ai_teacher_mode') || 'text'
+                : 'text';
 
-            if (!chatRes.ok) {
-                throw new Error('Failed to create chat');
+            if (aiTeacherMode === 'voice') {
+                // Voice mode: store context in sessionStorage and navigate to voice AI
+                try {
+                    sessionStorage.setItem('askAI_voiceContext', messageContent);
+                } catch {
+                    // sessionStorage may not be available
+                }
+                router.push('/voice-draw/new');
+            } else {
+                // Text mode: create a new chat with the context message (existing behavior)
+                const chatRes = await fetch('/api/teacher/chats', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        title: `Ask AI: ${ctx.source || 'Display Content'}`,
+                        messages: [{
+                            role: 'user',
+                            content: messageContent,
+                            timestamp: new Date().toISOString(),
+                        }],
+                        deviceModelId: ctx.deviceModelId,
+                    }),
+                });
+
+                if (!chatRes.ok) {
+                    throw new Error('Failed to create chat');
+                }
+
+                const chat = await chatRes.json();
+                
+                // Navigate to the new chat
+                router.push(`/ai-teacher/${chat.id}`);
             }
-
-            const chat = await chatRes.json();
-            
-            // Navigate to the new chat
-            router.push(`/ai-teacher/${chat.id}`);
         } catch (err) {
             console.error('[AskAI] Error:', err);
             toast.error('Failed to open AI Teacher');

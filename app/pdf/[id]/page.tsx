@@ -214,7 +214,6 @@ export default function PdfDetailPage({ params }: { params: Promise<{ id: string
                     title="PDF to Matrix"
                     description="Loading..."
                     Icon={<FileText className="size-8 text-primary" />}
-                    hideBackButton={true}
                 />
                 <div className="h-10 w-48 rounded-md bg-muted animate-pulse" />
                 <div className="border rounded-lg p-4 min-h-[200px] bg-muted/30 animate-pulse" />
@@ -230,7 +229,6 @@ export default function PdfDetailPage({ params }: { params: Promise<{ id: string
                     title="PDF to Matrix"
                     description="Error"
                     Icon={<FileText className="size-8 text-primary" />}
-                    hideBackButton={true}
                 />
                 <p className="text-destructive">{error ?? 'Conversion not found'}</p>
                 <Button variant="outline" onClick={() => router.push('/pdf')}>
@@ -273,7 +271,6 @@ export default function PdfDetailPage({ params }: { params: Promise<{ id: string
                 title="PDF to Matrix"
                 description={conversion.title}
                 Icon={<FileText className="size-8 text-primary" />}
-                hideBackButton={true}
             />
 
             {/* Toolbar */}

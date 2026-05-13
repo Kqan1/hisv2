@@ -155,6 +155,13 @@ export default function AITeacherChat({ params }: { params: Promise<{ id: string
                             sendToAIRef.current?.(msgs, id);
                         }, 100);
                     }
+
+                    // Ensure scroll stays at top (don't jump to bottom on load)
+                    setTimeout(() => {
+                        if (scrollContainerRef.current) {
+                            scrollContainerRef.current.scrollTop = 0;
+                        }
+                    }, 50);
                 }
             })
             .catch(err => console.error("Failed to load chat history", err));
@@ -233,16 +240,21 @@ export default function AITeacherChat({ params }: { params: Promise<{ id: string
         }
     }, [activeModel.rows, activeModel.cols, activeModel.id, router, sendPageToHardware]);
 
-    // Auto-scroll to bottom & sound cue when a new assistant message arrives
+    // Preserve scroll position & sound cue when a new assistant message arrives
     useEffect(() => {
         if (messages.length > prevMessageCountRef.current) {
             const lastMsg = messages[messages.length - 1];
-            if (lastMsg?.role === 'assistant') {
-                // Scroll to bottom
-                setTimeout(() => {
-                    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-                }, 100);
 
+            // Keep scroll at its current position (don't auto-scroll down)
+            const container = scrollContainerRef.current;
+            if (container) {
+                const savedScroll = container.scrollTop;
+                requestAnimationFrame(() => {
+                    container.scrollTop = savedScroll;
+                });
+            }
+
+            if (lastMsg?.role === 'assistant') {
                 // Sound cue via SpeechSynthesis
                 if ('speechSynthesis' in window) {
                     window.speechSynthesis.cancel();
@@ -300,7 +312,6 @@ export default function AITeacherChat({ params }: { params: Promise<{ id: string
                     title="AI Teacher" 
                     description="Chat with the AI teacher to learn new concepts." 
                     Icon={<BrainCircuit className="size-8 text-primary" />} 
-                    hideBackButton={true}
                 />
             </div>
             

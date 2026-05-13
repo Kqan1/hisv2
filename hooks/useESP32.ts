@@ -27,5 +27,9 @@ export function useESP32() {
     offKeyMessage: service.offKeyMessage.bind(service),
     onLetterMessage: service.onLetterMessage.bind(service),
     offLetterMessage: service.offLetterMessage.bind(service),
+    // Transport mode
+    setTransport: service.setTransport.bind(service),
+    getTransport: service.getTransport.bind(service),
+    reconnectSSE: service.reconnectSSE.bind(service),
   }), [service]);
 }

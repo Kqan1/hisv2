@@ -1,13 +1,15 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Matrix from '@/components/ui/matrix'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { useModel } from '@/components/providers/model-context'
 import { toast } from 'sonner'
-import { ChevronLeft, ChevronRight, Plus, Trash2 } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Plus, Trash2, Keyboard } from 'lucide-react'
+import { BRAILLE_MAP, CELL_WIDTH, CELL_HEIGHT } from '@/lib/braille'
+import { getESP32Service } from '@/services/esp32.service'
 
 export function NewNoteForm() {
     const router = useRouter()
@@ -32,6 +34,128 @@ export function NewNoteForm() {
     const [isSubmitting, setIsSubmitting] = useState(false)
     const [error, setError] = useState<string | null>(null)
 
+    // Braille typing state
+    const [brailleTyping, setBrailleTyping] = useState(false)
+    const brailleTypingRef = useRef(false)
+    brailleTypingRef.current = brailleTyping
+    const brailleCursorRef = useRef({ col: 0, line: 0 })
+    const matricesRef = useRef(matrices)
+    matricesRef.current = matrices
+    const activePageIndexRef = useRef(activePageIndex)
+    activePageIndexRef.current = activePageIndex
+
+    const CHAR_GAP = 1
+    const LINE_GAP = 1
+    const charStep = CELL_WIDTH + CHAR_GAP
+    const lineStep = CELL_HEIGHT + LINE_GAP
+
+    useEffect(() => {
+        if (!brailleTyping) return
+        const service = getESP32Service()
+
+        const maxCharsPerLine = Math.floor((activeModel.cols + CHAR_GAP) / charStep)
+        const maxLinesPerPage = Math.floor((activeModel.rows + LINE_GAP) / lineStep)
+
+        // Helper: create new page when current is full
+        const ensureRoom = () => {
+            const cursor = brailleCursorRef.current
+            if (cursor.line < maxLinesPerPage) return
+            const currentMatrices = matricesRef.current
+            const newMatrix = Array(activeModel.rows).fill(0).map(() => Array(activeModel.cols).fill(-1))
+            const next = [...currentMatrices, newMatrix]
+            // Update refs immediately so handler reads correct data
+            matricesRef.current = next
+            activePageIndexRef.current = next.length - 1
+            // Trigger React re-render
+            setMatrices(next)
+            setActivePageIndex(next.length - 1)
+            cursor.col = 0
+            cursor.line = 0
+        }
+
+        const handler = (msg: any) => {
+            if (msg.type !== 'letter' || !msg.letter) return
+            if (!brailleTypingRef.current) return
+            if (service.navActive || document.body.hasAttribute('data-tablet-nav')) return
+
+            const currentMatrices = matricesRef.current
+            const idx = activePageIndexRef.current
+            const matrix = currentMatrices[idx]
+            if (!matrix) return
+
+            const cursor = brailleCursorRef.current
+            const letter = msg.letter.toLowerCase()
+
+            // Backspace
+            if (letter === '\b' || letter === 'backspace') {
+                if (cursor.col > 0) {
+                    cursor.col--
+                } else if (cursor.line > 0) {
+                    cursor.line--
+                    cursor.col = maxCharsPerLine - 1
+                } else return
+                const newMatrix = matrix.map(r => [...r])
+                const px = cursor.col * charStep
+                const py = cursor.line * lineStep
+                for (let dr = 0; dr < CELL_HEIGHT; dr++)
+                    for (let dc = 0; dc < CELL_WIDTH; dc++)
+                        if (py + dr < activeModel.rows && px + dc < activeModel.cols)
+                            newMatrix[py + dr][px + dc] = -1
+                const next = [...currentMatrices]
+                next[idx] = newMatrix
+                setMatrices(next)
+                return
+            }
+
+            // Space
+            if (letter === ' ' || letter === 'space') {
+                cursor.col++
+                if (cursor.col >= maxCharsPerLine) { cursor.col = 0; cursor.line++ }
+                ensureRoom()
+                return
+            }
+
+            // Enter
+            if (letter === '\n' || letter === 'enter') {
+                cursor.col = 0; cursor.line++
+                ensureRoom()
+                return
+            }
+
+            const dots = BRAILLE_MAP[letter]
+            if (!dots) return
+
+            if (cursor.col >= maxCharsPerLine) {
+                cursor.col = 0; cursor.line++
+            }
+            ensureRoom()
+
+            // Re-read after possible page creation
+            const latestMatrices = matricesRef.current
+            const latestIdx = activePageIndexRef.current
+            const latestMatrix = latestMatrices[latestIdx]
+            if (!latestMatrix) return
+
+            const newMatrix = latestMatrix.map(r => [...r])
+            const px = cursor.col * charStep
+            const py = cursor.line * lineStep
+            const positions = [
+                [py, px, dots[0]], [py + 1, px, dots[1]], [py + 2, px, dots[2]],
+                [py, px + 1, dots[3]], [py + 1, px + 1, dots[4]], [py + 2, px + 1, dots[5]],
+            ]
+            for (const [r, c, val] of positions)
+                if (r < activeModel.rows && c < activeModel.cols)
+                    newMatrix[r][c] = val === 1 ? 1 : -1
+            const next = [...latestMatrices]
+            next[latestIdx] = newMatrix
+            setMatrices(next)
+            cursor.col++
+        }
+
+        const unsub = service.onLetterMessage(handler)
+        return () => unsub()
+    }, [brailleTyping, activeModel.rows, activeModel.cols, charStep, lineStep])
+
     const addPage = () => {
         setMatrices([...matrices, Array(activeModel.rows).fill(0).map(() => Array(activeModel.cols).fill(-1))])
         setActivePageIndex(matrices.length)
@@ -47,6 +171,10 @@ export function NewNoteForm() {
     }
 
     const updateActiveMatrix = (newMatrix: number[][]) => {
+        // Reset braille cursor if matrix was cleared
+        if (brailleTypingRef.current && newMatrix.every(row => row.every(cell => cell === -1))) {
+            brailleCursorRef.current = { col: 0, line: 0 }
+        }
         const newMatrices = [...matrices]
         newMatrices[activePageIndex] = newMatrix
         setMatrices(newMatrices)
@@ -150,6 +278,28 @@ export function NewNoteForm() {
                     </div>
 
                     <div className="flex items-center gap-2">
+                        <Button
+                            type="button"
+                            size="icon-sm"
+                            variant={brailleTyping ? "secondary" : "outline"}
+                            className="size-8 rounded-lg"
+                            onClick={() => {
+                                const next = !brailleTyping
+                                setBrailleTyping(next)
+                                if (next) {
+                                    brailleCursorRef.current = { col: 0, line: 0 }
+                                    // Blur any focused input so useTabletNav doesn't also type
+                                    if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+                                    toast.success('Braille typing ON')
+                                } else {
+                                    toast.success('Braille typing OFF')
+                                }
+                            }}
+                            title={brailleTyping ? 'Braille Typing: ON' : 'Braille Typing: OFF'}
+                            aria-label={brailleTyping ? 'Disable braille typing' : 'Enable braille typing'}
+                        >
+                            <Keyboard className="size-4" />
+                        </Button>
                         <Button 
                             type="button"
                             variant="secondary" 

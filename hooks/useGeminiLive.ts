@@ -38,6 +38,10 @@ export interface UseGeminiLiveReturn {
   error: string | null;
   /** Audio level for visualization (0-1) */
   audioLevel: number;
+  /** Whether the microphone is muted */
+  isMuted: boolean;
+  /** Toggle mute state */
+  toggleMute: () => void;
 }
 
 // ========================================================================
@@ -56,6 +60,7 @@ export function useGeminiLive({ initialTranscript = [], initialMatrix = null }: 
   const [currentMatrix, setCurrentMatrix] = useState<number[][] | null>(initialMatrix);
   const [error, setError] = useState<string | null>(null);
   const [audioLevel, setAudioLevel] = useState(0);
+  const [isMuted, setIsMuted] = useState(false);
 
   const serviceRef = useRef<GeminiLiveService | null>(null);
   const { setArray, enableLoop, clear } = useESP32();
@@ -222,6 +227,17 @@ export function useGeminiLive({ initialTranscript = [], initialMatrix = null }: 
     }
   }, []);
 
+  const toggleMute = useCallback(() => {
+    if (!serviceRef.current) return;
+    if (serviceRef.current.isMuted) {
+      serviceRef.current.unmuteMicrophone();
+      setIsMuted(false);
+    } else {
+      serviceRef.current.muteMicrophone();
+      setIsMuted(true);
+    }
+  }, []);
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -243,5 +259,7 @@ export function useGeminiLive({ initialTranscript = [], initialMatrix = null }: 
     sendText,
     error,
     audioLevel,
+    isMuted,
+    toggleMute,
   };
 }

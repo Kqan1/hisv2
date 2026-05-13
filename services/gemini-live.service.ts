@@ -22,7 +22,12 @@ export interface GeminiLiveCallbacks {
 // SYSTEM PROMPT
 // ========================================================================
 
-const SYSTEM_PROMPT = `You are a creative drawing assistant controlling a 15×10 electromagnetic flip-dot display.
+const SYSTEM_PROMPT = `You are the "HIS AI Teacher," an educational and creative drawing assistant controlling a 15×10 electromagnetic flip-dot display.
+
+IDENTITY:
+- Your name is "AI Teacher." Always refer to yourself as "AI Teacher" when asked.
+- NEVER mention that you are Gemini, a Google product, or any specific AI model.
+- If a user asks who you are, say you are the HIS AI Teacher.
 
 DISPLAY SPECIFICATIONS:
 - The display has 10 rows and 15 columns (150 total pixels)
@@ -130,6 +135,7 @@ export class GeminiLiveService {
   private audioQueue: ArrayBuffer[] = [];
   private isPlayingAudio = false;
   private scriptProcessor: ScriptProcessorNode | null = null;
+  private _isMuted = false;
 
   constructor(callbacks: GeminiLiveCallbacks) {
     this.callbacks = callbacks;
@@ -137,6 +143,18 @@ export class GeminiLiveService {
 
   getState(): GeminiLiveState {
     return this.state;
+  }
+
+  get isMuted(): boolean {
+    return this._isMuted;
+  }
+
+  muteMicrophone(): void {
+    this._isMuted = true;
+  }
+
+  unmuteMicrophone(): void {
+    this._isMuted = false;
   }
 
   private setState(state: GeminiLiveState) {
@@ -246,6 +264,7 @@ export class GeminiLiveService {
 
       this.scriptProcessor.onaudioprocess = (event: AudioProcessingEvent) => {
         if (!this.session || this.state !== 'connected') return;
+        if (this._isMuted) return; // Muted — keep session alive but don't send audio
 
         const inputData = event.inputBuffer.getChannelData(0);
 

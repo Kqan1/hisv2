@@ -167,6 +167,8 @@ export function useTabletNav() {
 
     const setNavActive = useCallback((active: boolean) => {
         navActiveRef.current = active;
+        // Sync to service singleton so braille handlers can check
+        getESP32Service().navActive = active;
         if (active) {
             document.body.setAttribute('data-tablet-nav', '');
             announce('Navigation mode on');
